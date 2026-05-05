@@ -8,7 +8,9 @@
   </head>
   <body>
     <main class="app-shell">
-      <aside class="sidebar">
+      <div id="backdrop" class="backdrop" aria-hidden="true"></div>
+
+      <aside class="sidebar" aria-label="Sidebar">
         <div>
           <p class="eyebrow">AI Data Analyst</p>
           <h1>EchaBot</h1>
@@ -30,6 +32,16 @@
       </aside>
 
       <section class="chat-panel">
+        <header class="topbar">
+          <button id="sidebarToggle" class="icon-btn" type="button" aria-label="Buka menu">
+            <span class="icon-lines" aria-hidden="true"></span>
+          </button>
+          <div class="topbar-title">
+            <div class="topbar-name">EchaBot</div>
+            <div class="topbar-subtitle">AI Data Analyst</div>
+          </div>
+        </header>
+
         <div id="messages" class="messages">
           <div class="message bot">
             <p>Halo, gue EchaBot. Upload dataset dulu, terus lo bisa minta ringkasan, grafik per tahun, per bulan, per store, heatmap, atau evaluasi model.</p>

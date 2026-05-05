@@ -6,6 +6,27 @@ const uploadBtn = document.querySelector("#uploadBtn");
 const sampleBtn = document.querySelector("#sampleBtn");
 const datasetStatus = document.querySelector("#datasetStatus");
 const datasetMeta = document.querySelector("#datasetMeta");
+const sidebarToggle = document.querySelector("#sidebarToggle");
+const backdrop = document.querySelector("#backdrop");
+
+function setSidebarOpen(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  if (backdrop) backdrop.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+if (sidebarToggle) {
+  sidebarToggle.addEventListener("click", () => {
+    setSidebarOpen(!document.body.classList.contains("sidebar-open"));
+  });
+}
+
+if (backdrop) {
+  backdrop.addEventListener("click", () => setSidebarOpen(false));
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") setSidebarOpen(false);
+});
 
 function escapeHtml(value) {
   return String(value ?? "")

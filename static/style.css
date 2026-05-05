@@ -14,11 +14,22 @@
 body {
   margin: 0;
   background: transparent;
+  overflow-x: hidden;
 }
 
 button,
 input {
   font: inherit;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+  z-index: 40;
 }
 
 .app-shell {
@@ -36,6 +47,7 @@ input {
   flex-direction: column;
   gap: 26px;
   border-right: 1px solid rgba(148, 163, 184, 0.18);
+  z-index: 50;
 }
 
 .eyebrow {
@@ -122,8 +134,84 @@ button.secondary:hover {
 
 .chat-panel {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
+}
+
+.topbar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(17, 24, 39, 0.72);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: grid;
+  place-items: center;
+}
+
+.icon-btn:hover {
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.icon-lines {
+  width: 18px;
+  height: 12px;
+  display: block;
+  position: relative;
+}
+
+.icon-lines::before,
+.icon-lines::after,
+.icon-lines {
+  background: transparent;
+}
+
+.icon-lines::before,
+.icon-lines::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.9);
+}
+
+.icon-lines::before {
+  top: 0;
+  box-shadow: 0 5px 0 rgba(226, 232, 240, 0.9);
+}
+
+.icon-lines::after {
+  bottom: 0;
+}
+
+.topbar-title {
+  display: grid;
+  gap: 2px;
+}
+
+.topbar-name {
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.topbar-subtitle {
+  font-size: 12px;
+  color: rgba(203, 213, 225, 0.9);
 }
 
 .messages {
@@ -247,16 +335,50 @@ button.secondary:hover {
     grid-template-columns: 1fr;
   }
 
+  .topbar {
+    display: flex;
+  }
+
+  .backdrop {
+    display: block;
+  }
+
   .sidebar {
-    padding: 22px;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(360px, 88vw);
+    padding: 18px;
+    transform: translateX(-102%);
+    transition: transform 180ms ease;
+    overflow-y: auto;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  body.sidebar-open .backdrop {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .messages {
-    padding: 18px;
+    padding: 16px 14px 18px;
   }
 
   .composer {
-    grid-template-columns: 1fr;
-    padding: 14px 18px;
+    grid-template-columns: 1fr auto;
+    padding: 12px 14px;
+  }
+
+  .message {
+    max-width: 100%;
+    border-radius: 14px;
+  }
+
+  .composer input {
+    padding: 12px 12px;
   }
 }
