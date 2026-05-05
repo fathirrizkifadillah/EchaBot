@@ -1,5 +1,7 @@
-matplotlib
-pandas
+flask
 groq
-streamlit
+matplotlib
+openpyxl
+pandas
 python-dotenv
+scikit-learn

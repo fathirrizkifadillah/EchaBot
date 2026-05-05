@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EchaBot</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">AI Data Analyst</p>
+          <h1>EchaBot</h1>
+          <p class="subtitle">Chatbot analisis dan visualisasi data penjualan.</p>
+        </div>
+
+        <section class="upload-panel">
+          <label for="dataset">Upload Dataset</label>
+          <input id="dataset" type="file" accept=".csv,.xlsx,.xls">
+          <button id="uploadBtn" type="button">Upload</button>
+          <button id="sampleBtn" type="button" class="secondary">Pakai Sample Walmart</button>
+        </section>
+
+        <section class="status-panel">
+          <h2>Dataset</h2>
+          <p id="datasetStatus">Belum ada dataset aktif.</p>
+          <div id="datasetMeta" class="meta-grid"></div>
+        </section>
+      </aside>
+
+      <section class="chat-panel">
+        <div id="messages" class="messages">
+          <div class="message bot">
+            <p>Halo, gue EchaBot. Upload dataset dulu, terus lo bisa minta ringkasan, grafik per tahun, per bulan, per store, heatmap, atau evaluasi model.</p>
+          </div>
+        </div>
+
+        <form id="chatForm" class="composer">
+          <input id="messageInput" autocomplete="off" placeholder="Contoh: tampilkan grafik penjualan per bulan">
+          <button type="submit">Kirim</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
