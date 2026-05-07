@@ -132,7 +132,7 @@ function appendMessage(role, payload) {
     av.className = "msg-avatar";
     av.setAttribute("aria-hidden", "true");
     const img = document.createElement("img");
-    img.src = "/static/logo.jpeg";
+    img.src = "/static/logo.png";
     img.alt = "";
     av.appendChild(img);
     msg.appendChild(av);
@@ -183,7 +183,7 @@ function showLoading() {
   av.className = "msg-avatar";
   av.setAttribute("aria-hidden", "true");
   const avImg = document.createElement("img");
-  avImg.src = "/static/logo.jpeg";
+  avImg.src = "/static/logo.png";
   avImg.alt = "";
   av.appendChild(avImg);
   bubble.appendChild(av);
