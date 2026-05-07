@@ -17,6 +17,8 @@ const sidebarToggle = document.querySelector("#sidebarToggle");
 const backdrop      = document.querySelector("#backdrop");
 
 let chatHistory = [];
+let isGenerating = false;
+let currentAbortController = null;
 
 /* ── SIDEBAR TOGGLE ─────────────────────────────── */
 function setSidebarOpen(open) {
@@ -286,12 +288,15 @@ async function useSampleDataset() {
 async function sendMessage(message) {
   appendMessage("user", message);
   setLoading(true);
+  isGenerating = true;
+  currentAbortController = new AbortController();
 
   try {
     const res  = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, history: chatHistory }),
+      signal: currentAbortController.signal
     });
     const data = await res.json();
     appendMessage("bot", data);
@@ -300,9 +305,15 @@ async function sendMessage(message) {
     const botContent = typeof data === "string" ? data : (data.message || "");
     chatHistory.push({ role: "assistant", content: botContent });
   } catch (err) {
-    appendMessage("bot", { message: "Maaf, terjadi kesalahan koneksi." });
+    if (err.name === "AbortError") {
+      appendMessage("bot", { message: "Tanggapan dibatalkan oleh pengguna." });
+    } else {
+      appendMessage("bot", { message: "Maaf, terjadi kesalahan koneksi." });
+    }
   } finally {
     setLoading(false);
+    isGenerating = false;
+    currentAbortController = null;
     messageInput.focus();
   }
 }
@@ -311,18 +322,15 @@ async function sendMessage(message) {
 function setLoading(on) {
   const sendIcon  = document.getElementById("sendIcon");
   const stopIcon  = document.getElementById("stopIcon");
-  const sendBtn   = document.getElementById("sendBtn");
 
   if (on) {
     showLoading();
-    if (sendBtn)  sendBtn.disabled      = true;
     if (sendIcon) sendIcon.style.display = "none";
     if (stopIcon) stopIcon.style.display = "block";
     uploadBtn.disabled = true;
     sampleBtn.disabled = true;
   } else {
     hideLoading();
-    if (sendBtn)  sendBtn.disabled      = false;
     if (sendIcon) sendIcon.style.display = "block";
     if (stopIcon) stopIcon.style.display = "none";
     uploadBtn.disabled = false;
@@ -336,6 +344,12 @@ sampleBtn.addEventListener("click", useSampleDataset);
 
 chatForm.addEventListener("submit", e => {
   e.preventDefault();
+  
+  if (isGenerating) {
+    if (currentAbortController) currentAbortController.abort();
+    return;
+  }
+  
   const msg = messageInput.value.trim();
   if (!msg) return;
   messageInput.value = "";
@@ -355,6 +369,8 @@ messageInput.addEventListener("input", function() {
 messageInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    chatForm.dispatchEvent(new Event("submit", { cancelable: true }));
+    if (!isGenerating) {
+      chatForm.dispatchEvent(new Event("submit", { cancelable: true }));
+    }
   }
 });
