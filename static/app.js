@@ -339,10 +339,19 @@ chatForm.addEventListener("submit", e => {
   const msg = messageInput.value.trim();
   if (!msg) return;
   messageInput.value = "";
+  messageInput.style.height = "40px";
   sendMessage(msg);
 });
 
 /* allow Shift+Enter for multiline in future; plain Enter sends */
+messageInput.addEventListener("input", function() {
+  this.style.height = "40px";
+  const scrollHeight = this.scrollHeight;
+  if (scrollHeight > 40) {
+    this.style.height = scrollHeight + "px";
+  }
+});
+
 messageInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();

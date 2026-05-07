@@ -285,6 +285,13 @@ a:hover { text-decoration: underline; }
   background: var(--bg-base);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  cursor: pointer;
+}
+.meta-item:hover, .meta-item:active {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  background: var(--bg-elevated);
 }
 .meta-item .mi-label {
   font-size: 10px;
@@ -546,7 +553,7 @@ a:hover { text-decoration: underline; }
 
 /* ── COMPOSER ────────────────────────────────────── */
 .composer {
-  padding: 16px 24px 20px;
+  padding: 12px 24px 16px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
 }
@@ -566,7 +573,7 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 3px rgba(56,197,245,0.12);
 }
 
-.composer-inner input {
+.composer-inner textarea {
   flex: 1;
   background: transparent;
   border: none;
@@ -574,8 +581,14 @@ a:hover { text-decoration: underline; }
   color: var(--text-primary);
   font-size: 15px;
   padding: 8px 0;
+  resize: none;
+  height: 40px;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 24px;
+  font-family: inherit;
 }
-.composer-inner input::placeholder { color: var(--text-muted); }
+.composer-inner textarea::placeholder { color: var(--text-muted); }
 
 .send-btn {
   flex-shrink: 0;
@@ -648,8 +661,9 @@ a:hover { text-decoration: underline; }
     padding: 4px 4px 4px 14px;
   }
   
-  .composer-inner input {
+  .composer-inner textarea {
     font-size: 14px;
+    padding: 6px 0;
   }
   
   .send-btn {
