@@ -464,8 +464,10 @@ a:hover { text-decoration: underline; }
   border-collapse: collapse;
   font-size: 13px;
   border-radius: var(--radius-md);
-  overflow: hidden;
   border: 1px solid var(--border);
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .data-table th {
   background: rgba(56,197,245,0.08);
@@ -612,17 +614,51 @@ a:hover { text-decoration: underline; }
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: min(340px, 90vw);
+    width: min(320px, 85vw);
     transform: translateX(-105%);
-    transition: transform 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: transform 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.5);
   }
 
   body.sidebar-open .sidebar    { transform: translateX(0); }
   body.sidebar-open .backdrop   { opacity: 1; pointer-events: auto; }
 
-  .messages { padding: 16px 16px 20px; }
+  .messages { padding: 12px 14px 16px; gap: 16px; }
 
-  .composer { padding: 12px 14px 16px; }
+  .message { max-width: 100%; gap: 8px; }
 
-  .message { max-width: 100%; }
+  .msg-avatar {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+  }
+  .msg-avatar img { width: 28px; height: 28px; }
+
+  .msg-bubble {
+    padding: 12px 14px;
+    font-size: 14px;
+    border-radius: var(--radius-lg);
+  }
+
+  .message.bot .msg-bubble { border-top-left-radius: var(--radius-sm); }
+  .message.user .msg-bubble { border-top-right-radius: var(--radius-sm); }
+
+  .composer { padding: 10px 12px 14px; }
+  
+  .composer-inner {
+    padding: 4px 4px 4px 14px;
+  }
+  
+  .composer-inner input {
+    font-size: 14px;
+  }
+  
+  .send-btn {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+  }
+
+  .data-table th, .data-table td {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
 }
