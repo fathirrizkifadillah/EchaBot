@@ -1,27 +1,6 @@
 import pandas as pd
 
 
-COLUMN_RENAME_MAP = {
-    "Store": "store",
-    "Date": "date",
-    "Weekly_Sales": "sales",
-    "Holiday_Flag": "holiday_flag",
-    "Temperature": "temperature",
-    "Fuel_Price": "fuel_price",
-    "CPI": "cpi",
-    "Unemployment": "unemployment",
-}
-
-NUMERIC_COLUMNS = [
-    "sales",
-    "holiday_flag",
-    "temperature",
-    "fuel_price",
-    "cpi",
-    "unemployment",
-]
-
-
 def _read_uploaded_file(file):
     # Flask `FileStorage` uses `.filename`, while some callers may provide `.name`.
     name = (getattr(file, "filename", None) or getattr(file, "name", "") or "").lower()
@@ -33,40 +12,35 @@ def _read_uploaded_file(file):
 
 
 def load_data(file):
-    """Load CSV/Excel, normalize Walmart-style columns, and preprocess the data."""
+    """Load CSV/Excel and preprocess the data."""
     df = _read_uploaded_file(file)
     return preprocess_data(df)
 
 
 def preprocess_data(df):
     df = df.copy()
-    df.rename(columns=COLUMN_RENAME_MAP, inplace=True)
-    df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
+    # Normalize column names generically
+    df.columns = [str(col).strip().lower().replace(" ", "_") for col in df.columns]
 
     initial_rows = len(df)
     duplicate_rows = int(df.duplicated().sum())
     df = df.drop_duplicates()
 
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
-
-    for col in NUMERIC_COLUMNS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Automatically try to parse datetime columns if they have 'date' or 'waktu' or 'tanggal' in the name
+    date_cols = [col for col in df.columns if any(k in col for k in ["date", "tanggal", "waktu"])]
+    for col in date_cols:
+        if df[col].dtype == 'object':
+            try:
+                df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=True)
+            except Exception:
+                pass
 
     missing_before = int(df.isna().sum().sum())
 
+    # Fill NA for numeric columns
     for col in df.select_dtypes(include="number").columns:
         if df[col].isna().any():
             df[col] = df[col].fillna(df[col].median())
-
-    if "date" in df.columns:
-        df = df.dropna(subset=["date"])
-
-    if "date" in df.columns:
-        df["year"] = df["date"].dt.year
-        df["month"] = df["date"].dt.month
-        df["month_year"] = df["date"].dt.to_period("M").astype(str)
 
     report = {
         "initial_rows": initial_rows,

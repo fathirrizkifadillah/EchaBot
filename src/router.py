@@ -8,11 +8,6 @@ def route_intent(user_input: str):
         (("model", "evaluasi", "akurasi", "random forest", "logistic"), "model_evaluation"),
         (("preprocess", "preprocessing", "missing", "duplikat", "cleaning"), "preprocessing"),
         (("heatmap", "korelasi", "correlation"), "correlation_heatmap"),
-        (("histogram", "distribusi"), "histogram_sales"),
-        (("boxplot", "outlier", "outliers"), "boxplot_sales"),
-        (("tahun", "year", "tahunan"), "plot_per_year"),
-        (("bulan", "month", "bulanan", "time series", "tren"), "plot_per_month"),
-        (("store", "toko", "antar toko"), "plot_per_store"),
         (("summary", "ringkasan", "statistik", "rata-rata", "total"), "summary"),
     ]
 

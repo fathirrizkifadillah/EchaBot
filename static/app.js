@@ -9,6 +9,8 @@ const datasetMeta = document.querySelector("#datasetMeta");
 const sidebarToggle = document.querySelector("#sidebarToggle");
 const backdrop = document.querySelector("#backdrop");
 
+let chatHistory = [];
+
 function setSidebarOpen(open) {
   document.body.classList.toggle("sidebar-open", open);
   if (backdrop) backdrop.setAttribute("aria-hidden", open ? "false" : "true");
@@ -171,6 +173,37 @@ function renderRowsTable(rows) {
   return table;
 }
 
+function showLoading() {
+  const bubble = document.createElement("div");
+  bubble.className = "message loading-bubble";
+  bubble.id = "loadingBubble";
+  
+  const typing = document.createElement("div");
+  typing.className = "bot-typing";
+  
+  const img = document.createElement("img");
+  img.src = "/static/logo.png";
+  img.alt = "EchaBot Logo";
+  
+  const dots = document.createElement("div");
+  dots.className = "typing-dots";
+  dots.appendChild(document.createElement("span"));
+  dots.appendChild(document.createElement("span"));
+  dots.appendChild(document.createElement("span"));
+  
+  typing.appendChild(img);
+  typing.appendChild(dots);
+  bubble.appendChild(typing);
+  
+  messages.appendChild(bubble);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function hideLoading() {
+  const bubble = document.querySelector("#loadingBubble");
+  if (bubble) bubble.remove();
+}
+
 function updateDatasetInfo(data) {
   datasetStatus.textContent = data.message;
   datasetMeta.innerHTML = "";
@@ -200,17 +233,20 @@ async function uploadDataset() {
   const formData = new FormData();
   formData.append("file", file);
 
+  showLoading();
   const response = await fetch("/upload", {
     method: "POST",
     body: formData,
   });
   const data = await response.json();
+  hideLoading();
 
   if (!response.ok) {
     appendMessage("bot", data.message || "Upload gagal.");
     return;
   }
 
+  chatHistory = [];
   updateDatasetInfo(data);
   appendMessage("bot", {
     message: data.message,
@@ -219,31 +255,58 @@ async function uploadDataset() {
 }
 
 async function useSampleDataset() {
+  showLoading();
   const response = await fetch("/use-sample", { method: "POST" });
   const data = await response.json();
+  hideLoading();
 
   if (!response.ok) {
     appendMessage("bot", data.message || "Sample gagal dimuat.");
     return;
   }
 
+  chatHistory = [];
   updateDatasetInfo(data);
   appendMessage("bot", data.message);
 }
 
 async function sendMessage(message) {
   appendMessage("user", message);
+  showLoading();
 
-  const response = await fetch("/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ message }),
-  });
+  const submitBtn = chatForm.querySelector("button[type='submit']");
+  const sendIcon = document.getElementById("sendIcon");
+  const stopIcon = document.getElementById("stopIcon");
 
-  const data = await response.json();
-  appendMessage("bot", data);
+  if (submitBtn) submitBtn.disabled = true;
+  if (sendIcon) sendIcon.style.display = "none";
+  if (stopIcon) stopIcon.style.display = "block";
+
+  try {
+    const response = await fetch("/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message, history: chatHistory }),
+    });
+
+    const data = await response.json();
+    hideLoading();
+    appendMessage("bot", data);
+
+    chatHistory.push({ role: "user", content: message });
+    const botContent = typeof data === "string" ? data : (data.message || "");
+    chatHistory.push({ role: "assistant", content: botContent });
+  } catch (error) {
+    hideLoading();
+    appendMessage("bot", { message: "Maaf, terjadi kesalahan koneksi." });
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+    if (sendIcon) sendIcon.style.display = "block";
+    if (stopIcon) stopIcon.style.display = "none";
+    messageInput.focus();
+  }
 }
 
 uploadBtn.addEventListener("click", uploadDataset);

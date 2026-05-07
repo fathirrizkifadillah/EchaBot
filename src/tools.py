@@ -33,15 +33,14 @@ def _pretty_label(value: str) -> str:
 
 
 def dataset_summary(df):
-    sales = df["sales"] if "sales" in df.columns else pd.Series(dtype=float)
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    missing_count = int(df.isna().sum().sum())
+    
     summary = {
         "jumlah_baris": int(len(df)),
         "jumlah_kolom": int(len(df.columns)),
-        "total_penjualan": _format_money(float(sales.sum())) if not sales.empty else "-",
-        "rata_rata_penjualan": _format_money(float(sales.mean())) if not sales.empty else "-",
-        "median_penjualan": _format_money(float(sales.median())) if not sales.empty else "-",
-        "penjualan_minimum": _format_money(float(sales.min())) if not sales.empty else "-",
-        "penjualan_maksimum": _format_money(float(sales.max())) if not sales.empty else "-",
+        "kolom_numerik": len(numeric_cols),
+        "total_data_kosong": missing_count,
     }
     return {
         "message": "Ini ringkasan statistik utama dari dataset yang sedang aktif.",
@@ -84,7 +83,10 @@ def plot_custom(df: pd.DataFrame, kind: str, x: str | None = None, y: str | None
         result = result.sort_index()
         path = _image_path("custom_plot")
 
-        ax = result.plot(kind="line" if kind == "line" else "bar", marker="o" if kind == "line" else None, figsize=(10, 4.8))
+        if kind == "line":
+            ax = result.plot(kind="line", marker="o", figsize=(10, 4.8))
+        else:
+            ax = result.plot(kind="bar", figsize=(10, 4.8))
         ax.set_title(f"{_pretty_label(y)} per {_pretty_label(x)} ({agg})")
         ax.set_xlabel(_pretty_label(x))
         ax.set_ylabel(_pretty_label(y))
@@ -159,98 +161,6 @@ def preprocessing_summary(report):
     }
 
 
-def plot_per_year(df):
-    if "year" not in df.columns or "sales" not in df.columns:
-        return {
-            "message": "Untuk plot per tahun, dataset butuh kolom `year` dan `sales`. Kalau dataset kamu beda, pakai perintah: `plot <kolom_x> vs <kolom_y>`."
-        }
-    result = df.groupby("year")["sales"].sum()
-    path = _image_path("sales_per_year")
-
-    ax = result.plot(kind="bar", color="#2563eb", figsize=(8, 4.5))
-    ax.set_title("Total Penjualan per Tahun")
-    ax.set_xlabel("Tahun")
-    ax.set_ylabel("Total Penjualan")
-    ax.ticklabel_format(style="plain", axis="y")
-
-    return {
-        "message": "Ini grafik total penjualan per tahun.",
-        "image": _save_plot(path),
-    }
-
-
-def plot_per_month(df):
-    if "date" not in df.columns or "sales" not in df.columns:
-        return {
-            "message": "Untuk plot per bulan (Walmart), dataset butuh kolom `date` dan `sales`. Kalau dataset kamu beda, pakai: `plot <kolom_x> vs <kolom_y>`."
-        }
-    monthly = df.copy()
-    monthly["month_year"] = pd.to_datetime(monthly["date"]).dt.to_period("M").astype(str)
-    result = monthly.groupby("month_year")["sales"].sum()
-    path = _image_path("sales_per_month")
-
-    ax = result.plot(kind="line", marker="o", color="#0f766e", figsize=(10, 4.5))
-    ax.set_title("Tren Penjualan per Bulan")
-    ax.set_xlabel("Bulan")
-    ax.set_ylabel("Total Penjualan")
-    ax.tick_params(axis="x", rotation=45)
-    ax.ticklabel_format(style="plain", axis="y")
-
-    return {
-        "message": "Ini grafik tren penjualan per bulan.",
-        "image": _save_plot(path),
-    }
-
-
-def plot_per_store(df):
-    if "store" not in df.columns or "sales" not in df.columns:
-        return {
-            "message": "Untuk plot per store (Walmart), dataset butuh kolom `store` dan `sales`. Kalau dataset kamu beda, pakai: `bar <kolom_kategori> vs <kolom_numerik>`."
-        }
-    result = df.groupby("store")["sales"].sum().sort_values(ascending=False)
-    path = _image_path("sales_per_store")
-
-    ax = result.plot(kind="bar", color="#f97316", figsize=(11, 4.8))
-    ax.set_title("Total Penjualan per Store")
-    ax.set_xlabel("Store")
-    ax.set_ylabel("Total Penjualan")
-    ax.ticklabel_format(style="plain", axis="y")
-
-    return {
-        "message": "Ini perbandingan total penjualan antar store.",
-        "image": _save_plot(path),
-    }
-
-
-def histogram_sales(df):
-    if "sales" not in df.columns:
-        return {"message": "Kolom `sales` tidak ada di dataset ini. Coba: `histogram <nama_kolom_numerik>`."}
-    path = _image_path("histogram_sales")
-    plt.figure(figsize=(8, 4.5))
-    plt.hist(df["sales"], bins=30, color="#7c3aed", edgecolor="white")
-    plt.title("Distribusi Weekly Sales")
-    plt.xlabel("Weekly Sales")
-    plt.ylabel("Frekuensi")
-    plt.ticklabel_format(style="plain", axis="x")
-    return {
-        "message": "Ini histogram untuk melihat distribusi Weekly Sales.",
-        "image": _save_plot(path),
-    }
-
-
-def boxplot_sales(df):
-    if "sales" not in df.columns:
-        return {"message": "Kolom `sales` tidak ada di dataset ini. Coba: `boxplot <nama_kolom_numerik>`."}
-    path = _image_path("boxplot_sales")
-    plt.figure(figsize=(7, 4.5))
-    plt.boxplot(df["sales"].dropna(), vert=False, patch_artist=True, boxprops={"facecolor": "#22c55e"})
-    plt.title("Boxplot Weekly Sales")
-    plt.xlabel("Weekly Sales")
-    plt.ticklabel_format(style="plain", axis="x")
-    return {
-        "message": "Ini boxplot untuk membantu mendeteksi outlier pada Weekly Sales.",
-        "image": _save_plot(path),
-    }
 
 
 def correlation_heatmap(df):
@@ -292,60 +202,6 @@ def model_evaluation(df):
             "message": "Fitur evaluasi model butuh scikit-learn. Jalankan: pip install -r requirements.txt",
         }
 
-    required = ["store", "sales", "holiday_flag", "temperature", "fuel_price", "cpi", "unemployment", "month", "year"]
-    missing = [col for col in required if col not in df.columns]
-    if missing:
-        return {"message": f"Kolom yang dibutuhkan belum lengkap: {', '.join(missing)}"}
-
-    data = df[required].dropna().copy()
-    data["sales_class"] = (data["sales"] > data["sales"].median()).astype(int)
-
-    x = data.drop(columns=["sales", "sales_class"])
-    y = data["sales_class"]
-
-    categorical_features = ["store", "month"]
-    numeric_features = ["holiday_flag", "temperature", "fuel_price", "cpi", "unemployment", "year"]
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(), numeric_features),
-            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
-        ]
-    )
-
-    models = {
-        "Logistic Regression": LogisticRegression(max_iter=1000),
-        "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
-    }
-
-    x_train, x_test, y_train, y_test = train_test_split(
-        x, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    rows = []
-    for model_name, model in models.items():
-        pipeline = Pipeline([("preprocess", preprocessor), ("model", model)])
-        pipeline.fit(x_train, y_train)
-
-        y_pred = pipeline.predict(x_test)
-        if hasattr(pipeline, "predict_proba"):
-            y_score = pipeline.predict_proba(x_test)[:, 1]
-        else:
-            y_score = y_pred
-
-        rows.append(
-            {
-                "model": model_name,
-                "accuracy": round(accuracy_score(y_test, y_pred), 4),
-                "precision": round(precision_score(y_test, y_pred), 4),
-                "recall": round(recall_score(y_test, y_pred), 4),
-                "f1_score": round(f1_score(y_test, y_pred), 4),
-                "auc_roc": round(roc_auc_score(y_test, y_score), 4),
-            }
-        )
-
-    best = max(rows, key=lambda row: row["f1_score"])
     return {
-        "message": f"Evaluasi model selesai. Berdasarkan F1-Score, model terbaik sementara adalah {best['model']}.",
-        "rows": rows,
+        "message": "Fitur evaluasi model otomatis saat ini membutuhkan kolom target tertentu dan sedang dalam pengembangan untuk dataset universal. Silakan manfaatkan fitur visualisasi untuk analisis korelasi.",
     }

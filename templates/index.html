@@ -11,11 +11,14 @@
       <div id="backdrop" class="backdrop" aria-hidden="true"></div>
 
       <aside class="sidebar" aria-label="Sidebar">
-        <div>
-          <p class="eyebrow">AI Data Analyst</p>
-          <h1>EchaBot</h1>
-          <p class="subtitle">Chatbot analisis dan visualisasi data penjualan.</p>
+        <div class="sidebar-header">
+          <img src="/static/logo.png" alt="EchaBot Logo" class="sidebar-logo">
+          <div>
+            <p class="eyebrow">AI Data Analyst</p>
+            <h1>EchaBot</h1>
+          </div>
         </div>
+        <p class="subtitle">Chatbot analisis dan visualisasi data penjualan.</p>
 
         <section class="upload-panel">
           <label for="dataset">Upload Dataset</label>
@@ -50,7 +53,10 @@
 
         <form id="chatForm" class="composer">
           <input id="messageInput" autocomplete="off" placeholder="Contoh: tampilkan grafik penjualan per bulan">
-          <button type="submit">Kirim</button>
+          <button id="sendBtn" type="submit" aria-label="Kirim">
+            <svg id="sendIcon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+            <svg id="stopIcon" style="display: none;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>
+          </button>
         </form>
       </section>
     </main>

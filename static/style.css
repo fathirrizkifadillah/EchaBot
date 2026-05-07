@@ -14,7 +14,8 @@
 body {
   margin: 0;
   background: transparent;
-  overflow-x: hidden;
+  overflow: hidden;
+  height: 100vh;
 }
 
 button,
@@ -33,7 +34,8 @@ input {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 330px 1fr;
 }
@@ -48,6 +50,21 @@ input {
   gap: 26px;
   border-right: 1px solid rgba(148, 163, 184, 0.18);
   z-index: 50;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sidebar-logo {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4);
+  object-fit: cover;
 }
 
 .eyebrow {
@@ -61,7 +78,10 @@ input {
 
 h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: 30px;
+  background: linear-gradient(to right, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .subtitle {
@@ -102,8 +122,15 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   background: linear-gradient(180deg, #2563eb, #1d4ed8);
+}
+
+button:disabled {
+  background: rgba(148, 163, 184, 0.15);
+  color: rgba(248, 250, 252, 0.5);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 button.secondary {
@@ -112,12 +139,21 @@ button.secondary {
   background: linear-gradient(180deg, #14b8a6, #0f766e);
 }
 
-button.secondary:hover {
+button.secondary:hover:not(:disabled) {
   background: linear-gradient(180deg, #0f766e, #0d5f59);
 }
 
 #uploadBtn {
   width: 100%;
+}
+
+#sendBtn {
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
 }
 
 .status-panel p {
@@ -136,6 +172,7 @@ button.secondary:hover {
   display: grid;
   grid-template-rows: auto 1fr auto;
   min-width: 0;
+  min-height: 0;
 }
 
 .topbar {
@@ -220,14 +257,15 @@ button.secondary:hover {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
 }
 
 .message {
   max-width: 860px;
-  border-radius: 8px;
-  padding: 14px 16px;
+  border-radius: 20px;
+  padding: 14px 18px;
   line-height: 1.55;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
@@ -259,15 +297,17 @@ button.secondary:hover {
 
 .message.user {
   align-self: flex-end;
-  background: linear-gradient(180deg, rgba(37, 99, 235, 0.98), rgba(29, 78, 216, 0.98));
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(29, 78, 216, 0.95));
   color: white;
   border-color: rgba(59, 130, 246, 0.35);
+  border-bottom-right-radius: 4px;
 }
 
 .message.bot {
   align-self: flex-start;
-  background: rgba(15, 23, 42, 0.55);
-  color: #e5e7eb;
+  background: rgba(30, 41, 59, 0.65);
+  color: #f8fafc;
+  border-bottom-left-radius: 4px;
 }
 
 .message img {
@@ -381,4 +421,61 @@ button.secondary:hover {
   .composer input {
     padding: 12px 12px;
   }
+}
+
+.message.loading-bubble {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  align-self: flex-start;
+}
+
+.bot-typing {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 20px;
+  border-bottom-left-radius: 4px;
+  width: fit-content;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.1);
+}
+
+.bot-typing img {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  animation: pulse-glow 1.5s infinite alternate;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.typing-dots span {
+  width: 8px;
+  height: 8px;
+  background-color: #38bdf8;
+  border-radius: 50%;
+  animation: typing-bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes pulse-glow {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 rgba(56, 189, 248, 0.4); }
+  100% { transform: scale(1.05); box-shadow: 0 0 15px rgba(56, 189, 248, 0.8); }
+}
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
 }

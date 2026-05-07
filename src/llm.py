@@ -17,16 +17,12 @@ Tugas kamu:
    - Kalau perlu list, pakai format sederhana: "1) ...", "2) ..." atau "- ...".
    - Usahakan ringkas dan mudah dibaca.
 
+{columns_context}
+
 Action yang tersedia:
 - summary
 - preprocessing
-- plot_per_year
-- plot_per_month
-- plot_per_store
-- histogram_sales
-- boxplot_sales
 - correlation_heatmap
-- model_evaluation
 - plot_custom (butuh params: kind=line|bar|scatter, x, y, agg=sum|mean|median)
 - histogram_column (butuh params: column)
 - boxplot_column (butuh params: column)
@@ -35,13 +31,13 @@ Action yang tersedia:
 - describe
 
 Format data request:
-{"action": "plot_per_year"}
+{{"action": "plot_custom", "params": {{"kind": "line", "x": "kolom1", "y": "kolom2", "agg": "sum"}}}}
 
 Contoh:
-- User: "plot month_year vs sales" -> {"action":"plot_custom","params":{"kind":"line","x":"month_year","y":"sales","agg":"sum"}}
-- User: "scatter temperature vs sales" -> {"action":"plot_custom","params":{"kind":"scatter","x":"temperature","y":"sales"}}
-- User: "histogram sales" -> {"action":"histogram_column","params":{"column":"sales"}}
-- User: "kolom apa aja?" -> {"action":"columns"}
+- User: "plot X vs Y" -> {{"action":"plot_custom","params":{{"kind":"line","x":"X","y":"Y","agg":"sum"}}}}
+- User: "scatter A vs B" -> {{"action":"plot_custom","params":{{"kind":"scatter","x":"A","y":"B"}}}}
+- User: "histogram C" -> {{"action":"histogram_column","params":{{"column":"C"}}}}
+- User: "kolom apa aja?" -> {{"action":"columns"}}
 """
 
 
@@ -53,7 +49,7 @@ def clean_output(text):
     return text.replace("```json", "").replace("```", "").strip()
 
 
-def get_intent(user_input):
+def get_intent(user_input, df_context=None, history=None):
     api_key = (os.getenv("GROQ_API_KEY") or os.getenv("API_KEY") or "").strip()
     if not api_key:
         return "LLM belum aktif: `API_KEY` / `GROQ_API_KEY` tidak ditemukan di environment (.env)."
@@ -69,13 +65,23 @@ def get_intent(user_input):
         }
         model = model_alias.get(requested, requested)
 
+        columns_context = ""
+        if df_context is not None:
+            cols = ", ".join(df_context.columns)
+            columns_context = f"Kolom dataset saat ini: {cols}"
+            
+        system_content = SYSTEM_PROMPT.format(columns_context=columns_context)
+
+        messages = [{"role": "system", "content": system_content}]
+        if history:
+            for msg in history[-10:]:
+                messages.append({"role": msg.get("role", "user"), "content": str(msg.get("content", ""))})
+        messages.append({"role": "user", "content": user_input})
+
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_input},
-            ],
+            messages=messages,
             temperature=0.2,
         )
         return clean_output(response.choices[0].message.content)

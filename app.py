@@ -70,11 +70,6 @@ def _answer(action, df, report):
     actions = {
         "summary": lambda: tools.dataset_summary(df),
         "preprocessing": lambda: tools.preprocessing_summary(report),
-        "plot_per_year": lambda: tools.plot_per_year(df),
-        "plot_per_month": lambda: tools.plot_per_month(df),
-        "plot_per_store": lambda: tools.plot_per_store(df),
-        "histogram_sales": lambda: tools.histogram_sales(df),
-        "boxplot_sales": lambda: tools.boxplot_sales(df),
         "correlation_heatmap": lambda: tools.correlation_heatmap(df),
         "model_evaluation": lambda: tools.model_evaluation(df),
         "columns": lambda: {
@@ -99,7 +94,7 @@ def _answer(action, df, report):
 
     if action_name not in actions:
         return {
-            "message": "Aku bisa bantu: ringkasan, preprocessing, grafik (tahun/bulan/store), histogram, boxplot, heatmap, atau evaluasi model."
+            "message": "Aku bisa bantu: ringkasan, preprocessing, grafik (scatter/line/bar), histogram, boxplot, atau heatmap."
         }
 
     try:
@@ -270,6 +265,7 @@ def use_sample():
 def chat():
     payload = request.get_json(silent=True) or {}
     user_message = payload.get("message", "").strip()
+    history = payload.get("history", [])
 
     if not user_message:
         return jsonify({"message": "Tulis pertanyaannya dulu ya."}), 400
@@ -281,7 +277,7 @@ def chat():
     # =========================
     llm_text = ""
     try:
-        llm_text = get_intent(user_message)
+        llm_text = get_intent(user_message, df, history)
     except Exception:
         llm_text = ""
 
