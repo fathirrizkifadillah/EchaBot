@@ -7,6 +7,7 @@ const sampleBtn = document.querySelector("#sampleBtn");
 const datasetStatus = document.querySelector("#datasetStatus");
 const datasetMeta = document.querySelector("#datasetMeta");
 const sidebarToggle = document.querySelector("#sidebarToggle");
+const sidebarClose = document.querySelector("#sidebarClose");
 const backdrop = document.querySelector("#backdrop");
 
 let chatHistory = [];
@@ -20,6 +21,10 @@ if (sidebarToggle) {
   sidebarToggle.addEventListener("click", () => {
     setSidebarOpen(!document.body.classList.contains("sidebar-open"));
   });
+}
+
+if (sidebarClose) {
+  sidebarClose.addEventListener("click", () => setSidebarOpen(false));
 }
 
 if (backdrop) {
