@@ -14,12 +14,7 @@ const statusLoaded  = document.querySelector("#statusLoaded");
 const datasetName   = document.querySelector("#datasetName");
 const datasetMeta   = document.querySelector("#datasetMeta");
 const sidebarToggle = document.querySelector("#sidebarToggle");
-<<<<<<< HEAD
 const backdrop      = document.querySelector("#backdrop");
-=======
-const sidebarClose = document.querySelector("#sidebarClose");
-const backdrop = document.querySelector("#backdrop");
->>>>>>> 87980c355cdb679d09d42dc3b4031aaf3472c1a6
 
 let chatHistory = [];
 
@@ -35,23 +30,10 @@ sidebarToggle?.addEventListener("click", () => {
 backdrop?.addEventListener("click", () => setSidebarOpen(false));
 window.addEventListener("keydown", e => { if (e.key === "Escape") setSidebarOpen(false); });
 
-<<<<<<< HEAD
 /* ── FILE LABEL UPDATE ───────────────────────────── */
 datasetInput?.addEventListener("change", () => {
   const file = datasetInput.files[0];
   if (fileLabel) fileLabel.textContent = file ? file.name : "Pilih file CSV / Excel";
-=======
-if (sidebarClose) {
-  sidebarClose.addEventListener("click", () => setSidebarOpen(false));
-}
-
-if (backdrop) {
-  backdrop.addEventListener("click", () => setSidebarOpen(false));
-}
-
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") setSidebarOpen(false);
->>>>>>> 87980c355cdb679d09d42dc3b4031aaf3472c1a6
 });
 
 /* ── HTML HELPERS ────────────────────────────────── */
