@@ -60,11 +60,10 @@ def get_intent(user_input, df_context=None, history=None):
     try:
         from groq import Groq
 
-        requested = (os.getenv("GROQ_MODEL") or "qwen-32b").strip()
+        requested = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
         model_alias = {
-            "qwen-32b": "qwen/qwen3-32b",
-            "qwen3-32b": "qwen/qwen3-32b",
-            "qwen/qwen3-32b": "qwen/qwen3-32b",
+            "gpt-oss": "openai/gpt-oss-120b",
+            "gpt-oss-120b": "openai/gpt-oss-120b",
         }
         model = model_alias.get(requested, requested)
 
