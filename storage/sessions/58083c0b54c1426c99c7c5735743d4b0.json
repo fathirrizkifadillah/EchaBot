@@ -1,0 +1,16 @@
+{
+  "user_id": "user_mp6g8ecxqlcpfv",
+  "created_at": "2026-05-15T12:24:07.377861",
+  "title": "hi...",
+  "updated_at": "2026-05-15T12:24:13.043242",
+  "history": [
+    {
+      "role": "user",
+      "content": "hi"
+    },
+    {
+      "role": "bot",
+      "content": "Hai! Ada yang bisa aku bantu hari ini?"
+    }
+  ]
+}

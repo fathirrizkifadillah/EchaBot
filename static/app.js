@@ -145,8 +145,19 @@ function renderRowsTable(rows) {
 }
 
 /* ── APPEND MESSAGE ──────────────────────────────── */
+function setWelcomeMode(active) {
+  const panel = document.querySelector(".chat-panel");
+  if (active) {
+    if (welcomeScreen) welcomeScreen.style.display = "flex";
+    if (panel) panel.classList.add("welcome-mode");
+  } else {
+    if (welcomeScreen) welcomeScreen.style.display = "none";
+    if (panel) panel.classList.remove("welcome-mode");
+  }
+}
+
 function appendMessage(role, payload) {
-  if (welcomeScreen) welcomeScreen.style.display = "none";
+  setWelcomeMode(false);
 
   const msg    = document.createElement("div");
   msg.className = `message ${role}`;
@@ -452,7 +463,7 @@ async function loadSession(sessionId) {
       chatHistory = data.session.history || [];
       
       messagesEl.innerHTML = "";
-      if (welcomeScreen) welcomeScreen.style.display = "none";
+      setWelcomeMode(false);
       
       if (data.session.dataset_name) {
         data.session._filename = data.session.dataset_name;
@@ -490,7 +501,7 @@ async function createNewChat() {
       currentSessionId = data.session_id;
       chatHistory = [];
       messagesEl.innerHTML = "";
-      if (welcomeScreen) welcomeScreen.style.display = "flex";
+      setWelcomeMode(true);
 
       statusIdle.style.display = "flex";
       statusLoaded.style.display = "none";

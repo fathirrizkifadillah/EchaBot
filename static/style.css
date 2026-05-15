@@ -421,13 +421,36 @@ a:hover { text-decoration: underline; }
 
 /* ── WELCOME SCREEN ──────────────────────────────── */
 .welcome-screen {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   padding: 0 20px;
+}
+
+/* Welcome Mode: centered composer like ChatGPT */
+.chat-panel.welcome-mode .welcome-screen {
+  flex: 1;
+  justify-content: flex-end;
+  padding-bottom: 20px;
+}
+
+.chat-panel.welcome-mode .messages {
+  display: none;
+}
+
+.chat-panel.welcome-mode .composer {
+  max-width: 640px;
+  width: 90%;
+  margin: 0 auto;
+  padding-bottom: 15vh;
+  background: none;
+  border-top: none;
+}
+
+.chat-panel.welcome-mode .composer-hint {
+  display: block;
 }
 
 .ws-data-anim {
