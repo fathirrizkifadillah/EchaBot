@@ -35,14 +35,6 @@ class SessionManager:
                 data["title"] = "New Chat"
 
         data["updated_at"] = datetime.now().isoformat()
-        
-        # Set title dynamically from history if not explicitly set
-        history = data.get("history", [])
-        if history and len(history) > 0:
-            first_user_msg = next((msg for msg in history if msg.get("role") == "user"), None)
-            if first_user_msg and data.get("title") in ["New Chat", None]:
-                text = first_user_msg.get("content", "").strip()
-                data["title"] = text[:30] + "..." if len(text) > 30 else text
 
         with open(SessionManager._get_path(session_id), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

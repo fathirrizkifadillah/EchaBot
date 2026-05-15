@@ -1,0 +1,15 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "content": "hai, bisa bantu analisis data??"
+    },
+    {
+      "role": "bot",
+      "content": "Hai! Tentu, aku siap bantu analisis data kamu. Kasih tahu dulu, data apa yang mau kamu lihat atau analisis apa yang kamu perlukan, supaya aku bisa membantu dengan tepat."
+    }
+  ],
+  "created_at": "2026-05-15T11:27:53.689311",
+  "title": "hai, bisa bantu analisis data?...",
+  "updated_at": "2026-05-15T11:27:55.179968"
+}

@@ -623,10 +623,10 @@ a:hover { text-decoration: underline; }
 }
 
 .message.bot .msg-bubble {
-  background: transparent;
-  border: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-top-left-radius: var(--radius-sm);
   color: var(--text-primary);
-  padding-left: 0;
 }
 
 .message.user .msg-bubble {
