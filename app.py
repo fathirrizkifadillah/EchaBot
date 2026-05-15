@@ -187,19 +187,28 @@ def index():
 # --- Session API ---
 @app.route("/api/sessions", methods=["GET"])
 def get_sessions():
-    sessions = SessionManager.list_sessions()
+    user_id = request.headers.get("X-User-Id", "")
+    sessions = SessionManager.list_sessions(user_id=user_id or None)
     return jsonify({"ok": True, "sessions": sessions})
 
 @app.route("/api/sessions/new", methods=["POST"])
 def new_session():
     # Force a new session ID
     session["sid"] = uuid4().hex
+    user_id = request.headers.get("X-User-Id", "")
+    if user_id:
+        SessionManager.save_session(session["sid"], {"user_id": user_id})
     return jsonify({"ok": True, "session_id": session["sid"]})
 
 @app.route("/api/sessions/<session_id>", methods=["GET"])
 def get_session(session_id):
     data = SessionManager.load_session(session_id)
     if not data:
+        return jsonify({"ok": False, "message": "Sesi tidak ditemukan"}), 404
+    
+    # Verify ownership
+    user_id = request.headers.get("X-User-Id", "")
+    if user_id and data.get("user_id") and data["user_id"] != user_id:
         return jsonify({"ok": False, "message": "Sesi tidak ditemukan"}), 404
         
     session["sid"] = session_id

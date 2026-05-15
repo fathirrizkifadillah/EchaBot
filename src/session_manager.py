@@ -51,12 +51,15 @@ class SessionManager:
         return {}
 
     @staticmethod
-    def list_sessions() -> list:
+    def list_sessions(user_id=None) -> list:
         sessions = []
         for file in SESSIONS_DIR.glob("*.json"):
             sid = file.stem
             data = SessionManager.load_session(sid)
             if data:
+                # Filter by user_id if provided
+                if user_id and data.get("user_id") != user_id:
+                    continue
                 sessions.append({
                     "id": sid,
                     "title": data.get("title", "New Chat"),

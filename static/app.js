@@ -30,6 +30,17 @@ let chatHistory = [];
 let isGenerating = false;
 let currentAbortController = null;
 
+// Per-user ID (persistent in browser)
+function getUserId() {
+  let uid = localStorage.getItem("echabot_user_id");
+  if (!uid) {
+    uid = "user_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem("echabot_user_id", uid);
+  }
+  return uid;
+}
+const userId = getUserId();
+
 /* ── SIDEBAR TOGGLE ─────────────────────────────── */
 function setSidebarOpen(open) {
   document.body.classList.toggle("sidebar-open", open);
@@ -392,7 +403,9 @@ messageInput.addEventListener("keydown", e => {
 async function fetchHistory() {
   if (!historyList) return;
   try {
-    const res = await fetch("/api/sessions");
+    const res = await fetch("/api/sessions", {
+      headers: { "X-User-Id": userId }
+    });
     const data = await res.json();
     if (data.ok) {
       historyList.innerHTML = "";
@@ -430,7 +443,9 @@ async function fetchHistory() {
 async function loadSession(sessionId) {
   setLoading(true);
   try {
-    const res = await fetch(`/api/sessions/${sessionId}`);
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      headers: { "X-User-Id": userId }
+    });
     const data = await res.json();
     if (data.ok) {
       currentSessionId = sessionId;
@@ -466,7 +481,10 @@ async function loadSession(sessionId) {
 
 async function createNewChat() {
   try {
-    const res = await fetch("/api/sessions/new", { method: "POST" });
+    const res = await fetch("/api/sessions/new", {
+      method: "POST",
+      headers: { "X-User-Id": userId }
+    });
     const data = await res.json();
     if (data.ok) {
       currentSessionId = data.session_id;
@@ -504,7 +522,10 @@ if (confirmDeleteBtn) {
     confirmDeleteBtn.textContent = "Menghapus...";
     
     try {
-      await fetch(`/api/sessions/${sessionToDelete}`, { method: "DELETE" });
+      await fetch(`/api/sessions/${sessionToDelete}`, {
+        method: "DELETE",
+        headers: { "X-User-Id": userId }
+      });
       if (sessionToDelete === currentSessionId) createNewChat();
       else fetchHistory();
     } catch (err) {
