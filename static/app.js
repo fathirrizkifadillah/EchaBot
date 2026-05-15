@@ -15,7 +15,17 @@ const datasetName   = document.querySelector("#datasetName");
 const datasetMeta   = document.querySelector("#datasetMeta");
 const sidebarToggle = document.querySelector("#sidebarToggle");
 const backdrop      = document.querySelector("#backdrop");
+const newChatBtn    = document.querySelector("#newChatBtn");
+const historyList   = document.querySelector("#historyList");
+const welcomeScreen = document.querySelector("#welcomeScreen");
 
+// Modal Elements
+const deleteModal      = document.querySelector("#deleteModal");
+const cancelDeleteBtn  = document.querySelector("#cancelDeleteBtn");
+const confirmDeleteBtn = document.querySelector("#confirmDeleteBtn");
+
+let currentSessionId = null;
+let sessionToDelete = null;
 let chatHistory = [];
 let isGenerating = false;
 let currentAbortController = null;
@@ -125,6 +135,8 @@ function renderRowsTable(rows) {
 
 /* ── APPEND MESSAGE ──────────────────────────────── */
 function appendMessage(role, payload) {
+  if (welcomeScreen) welcomeScreen.style.display = "none";
+
   const msg    = document.createElement("div");
   msg.className = `message ${role}`;
 
@@ -258,6 +270,7 @@ async function uploadDataset() {
     updateDatasetInfo(data);
     appendMessage("bot", { message: data.message, rows: data.preview || [] });
     if (sampleBtn) sampleBtn.textContent = "Ganti ke Sample Walmart";
+    fetchHistory();
   } catch (err) {
     appendMessage("bot", { message: "Koneksi error saat upload." });
   } finally {
@@ -277,6 +290,7 @@ async function useSampleDataset() {
     data._filename = "Walmart_Sales.csv";
     updateDatasetInfo(data);
     appendMessage("bot", data.message);
+    fetchHistory();
   } catch (err) {
     appendMessage("bot", { message: "Koneksi error saat load sample." });
   } finally {
@@ -304,6 +318,7 @@ async function sendMessage(message) {
     chatHistory.push({ role: "user", content: message });
     const botContent = typeof data === "string" ? data : (data.message || "");
     chatHistory.push({ role: "assistant", content: botContent });
+    fetchHistory();
   } catch (err) {
     if (err.name === "AbortError") {
       appendMessage("bot", { message: "Tanggapan dibatalkan oleh pengguna." });
@@ -341,6 +356,7 @@ function setLoading(on) {
 /* ── EVENT LISTENERS ─────────────────────────────── */
 uploadBtn.addEventListener("click", uploadDataset);
 sampleBtn.addEventListener("click", useSampleDataset);
+if (newChatBtn) newChatBtn.addEventListener("click", createNewChat);
 
 chatForm.addEventListener("submit", e => {
   e.preventDefault();
@@ -353,17 +369,14 @@ chatForm.addEventListener("submit", e => {
   const msg = messageInput.value.trim();
   if (!msg) return;
   messageInput.value = "";
-  messageInput.style.height = "40px";
+  messageInput.style.height = "auto";
   sendMessage(msg);
 });
 
 /* allow Shift+Enter for multiline in future; plain Enter sends */
 messageInput.addEventListener("input", function() {
-  this.style.height = "40px";
-  const scrollHeight = this.scrollHeight;
-  if (scrollHeight > 40) {
-    this.style.height = scrollHeight + "px";
-  }
+  this.style.height = "auto";
+  this.style.height = this.scrollHeight + "px";
 });
 
 messageInput.addEventListener("keydown", e => {
@@ -373,4 +386,139 @@ messageInput.addEventListener("keydown", e => {
       chatForm.dispatchEvent(new Event("submit", { cancelable: true }));
     }
   }
+});
+
+/* ── HISTORY MANAGEMENT ──────────────────────────── */
+async function fetchHistory() {
+  if (!historyList) return;
+  try {
+    const res = await fetch("/api/sessions");
+    const data = await res.json();
+    if (data.ok) {
+      historyList.innerHTML = "";
+      if (data.sessions.length === 0) {
+        historyList.innerHTML = '<div class="status-idle">Belum ada riwayat</div>';
+        return;
+      }
+      data.sessions.forEach(session => {
+        const item = document.createElement("div");
+        item.className = "history-item";
+        if (session.id === currentSessionId) item.classList.add("active");
+        
+        item.innerHTML = `
+          <div class="history-item-title">${escapeHtml(session.title)}</div>
+          <button class="history-item-del" title="Hapus Chat">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+          </button>
+        `;
+        
+        item.querySelector(".history-item-title").addEventListener("click", () => loadSession(session.id));
+        item.querySelector(".history-item-del").addEventListener("click", (e) => {
+          e.stopPropagation();
+          sessionToDelete = session.id;
+          if (deleteModal) deleteModal.classList.add("show");
+        });
+        
+        historyList.appendChild(item);
+      });
+    }
+  } catch (err) {
+    console.error("Failed to fetch history:", err);
+  }
+}
+
+async function loadSession(sessionId) {
+  setLoading(true);
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}`);
+    const data = await res.json();
+    if (data.ok) {
+      currentSessionId = sessionId;
+      chatHistory = data.session.history || [];
+      
+      messagesEl.innerHTML = "";
+      if (welcomeScreen) welcomeScreen.style.display = "none";
+      
+      if (data.session.dataset_name) {
+        data.session._filename = data.session.dataset_name;
+        data.session.report = { final_rows: "Dimuat Ulang" }; 
+        updateDatasetInfo(data.session);
+        if (sampleBtn) sampleBtn.textContent = "Ganti ke Sample Walmart";
+      } else {
+        statusIdle.style.display = "flex";
+        statusLoaded.style.display = "none";
+      }
+
+      chatHistory.forEach(msg => {
+         if (msg.role === "user") appendMessage("user", msg.content);
+         else appendMessage("bot", msg.content);
+      });
+      
+      fetchHistory();
+      if (window.innerWidth <= 820) setSidebarOpen(false);
+    }
+  } catch (err) {
+    appendMessage("bot", { message: "Gagal memuat sesi chat." });
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function createNewChat() {
+  try {
+    const res = await fetch("/api/sessions/new", { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      currentSessionId = data.session_id;
+      chatHistory = [];
+      messagesEl.innerHTML = "";
+      if (welcomeScreen) welcomeScreen.style.display = "flex";
+
+      statusIdle.style.display = "flex";
+      statusLoaded.style.display = "none";
+      if (datasetInput) datasetInput.value = "";
+      if (fileLabel) fileLabel.textContent = "Pilih file CSV / Excel";
+      if (sampleBtn) sampleBtn.textContent = "Pakai Sample Walmart";
+      fetchHistory();
+      if (window.innerWidth <= 820) setSidebarOpen(false);
+    }
+  } catch (err) {
+    console.error("Failed to create new chat:", err);
+  }
+}
+
+// Modal Handlers
+if (cancelDeleteBtn) {
+  cancelDeleteBtn.addEventListener("click", () => {
+    sessionToDelete = null;
+    if (deleteModal) deleteModal.classList.remove("show");
+  });
+}
+
+if (confirmDeleteBtn) {
+  confirmDeleteBtn.addEventListener("click", async () => {
+    if (!sessionToDelete) return;
+    
+    // Disable button to prevent double clicks
+    confirmDeleteBtn.disabled = true;
+    confirmDeleteBtn.textContent = "Menghapus...";
+    
+    try {
+      await fetch(`/api/sessions/${sessionToDelete}`, { method: "DELETE" });
+      if (sessionToDelete === currentSessionId) createNewChat();
+      else fetchHistory();
+    } catch (err) {
+      console.error("Gagal menghapus sesi:", err);
+    } finally {
+      sessionToDelete = null;
+      if (deleteModal) deleteModal.classList.remove("show");
+      confirmDeleteBtn.disabled = false;
+      confirmDeleteBtn.textContent = "Ya, Hapus";
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Always initialize a new chat session state on load if there's no chat history
+  createNewChat();
 });

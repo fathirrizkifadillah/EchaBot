@@ -99,3 +99,26 @@ def parse_intent(text):
         return {"action": action, "params": params} if params is not None else action
     except Exception:
         return None
+
+def generate_chat_title(user_input):
+    api_key = (os.getenv("GROQ_API_KEY") or os.getenv("API_KEY") or "").strip()
+    if not api_key:
+        return user_input[:30] + "..."
+    
+    try:
+        from groq import Groq
+        model = (os.getenv("GROQ_MODEL") or "llama3-8b-8192").strip() # default to faster model if possible, or fallback
+        # just use whatever is in env
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Buat 1 judul percakapan singkat (maks 5 kata) berdasarkan pesan pengguna. Jangan gunakan tanda kutip, langsung berikan judulnya saja. Gunakan bahasa Indonesia. Contoh: Analisis Data Penjualan"},
+                {"role": "user", "content": user_input}
+            ],
+            temperature=0.3,
+            max_tokens=15,
+        )
+        return clean_output(response.choices[0].message.content)[:40]
+    except Exception:
+        return user_input[:30] + "..."

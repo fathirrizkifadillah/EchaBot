@@ -5,9 +5,11 @@ from uuid import uuid4
 from flask import Flask, jsonify, render_template, request, send_from_directory, session
 
 from src import tools
-from src.llm import get_intent, parse_intent
+from src.llm import get_intent, parse_intent, generate_chat_title
 from src.loader import load_data, preprocess_data
 from src.router import route_intent
+from src.session_manager import SessionManager
+import threading
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,6 +34,14 @@ def _session_id():
 def _current_dataset():
     sid = _session_id()
     return DATASETS.get(sid), REPORTS.get(sid)
+
+def _update_title_async(sid, user_message):
+    try:
+        title = generate_chat_title(user_message)
+        if title and len(title.strip()) > 0:
+            SessionManager.save_session(sid, {"title": title.strip()})
+    except:
+        pass
 
 
 # =========================
@@ -174,6 +184,53 @@ def _try_parse_custom_plot(user_message: str, df):
 def index():
     return render_template("index.html")
 
+# --- Session API ---
+@app.route("/api/sessions", methods=["GET"])
+def get_sessions():
+    sessions = SessionManager.list_sessions()
+    return jsonify({"ok": True, "sessions": sessions})
+
+@app.route("/api/sessions/new", methods=["POST"])
+def new_session():
+    # Force a new session ID
+    session["sid"] = uuid4().hex
+    return jsonify({"ok": True, "session_id": session["sid"]})
+
+@app.route("/api/sessions/<session_id>", methods=["GET"])
+def get_session(session_id):
+    data = SessionManager.load_session(session_id)
+    if not data:
+        return jsonify({"ok": False, "message": "Sesi tidak ditemukan"}), 404
+        
+    session["sid"] = session_id
+    
+    # Reload dataset if path exists
+    dataset_path = data.get("dataset_path")
+    if dataset_path:
+        path = Path(dataset_path)
+        if path.exists():
+            try:
+                import pandas as pd
+                df = pd.read_csv(path) if path.suffix == ".csv" else pd.read_excel(path)
+                df, report = preprocess_data(df)
+                DATASETS[session_id] = df
+                REPORTS[session_id] = report
+            except Exception as e:
+                pass
+
+    return jsonify({"ok": True, "session": data})
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+def delete_session(session_id):
+    SessionManager.delete_session(session_id)
+    # If deleting active session
+    if session.get("sid") == session_id:
+        session.pop("sid", None)
+        DATASETS.pop(session_id, None)
+        REPORTS.pop(session_id, None)
+    return jsonify({"ok": True})
+
+
 
 @app.route("/debug/llm")
 def debug_llm():
@@ -213,6 +270,17 @@ def upload():
         sid = _session_id()
         DATASETS[sid] = df
         REPORTS[sid] = report
+        
+        # Save to SessionManager
+        import tempfile
+        import os
+        uploaded_file.seek(0)
+        fd, temp_path = tempfile.mkstemp(suffix=Path(uploaded_file.filename).suffix)
+        os.close(fd)
+        uploaded_file.save(temp_path)
+        
+        SessionManager.update_dataset(sid, temp_path, uploaded_file.filename)
+        os.remove(temp_path)
 
         return jsonify({
             "ok": True,
@@ -246,6 +314,8 @@ def use_sample():
         sid = _session_id()
         DATASETS[sid] = df
         REPORTS[sid] = report
+        
+        SessionManager.update_dataset(sid, str(sample_path), "Walmart_Sales.csv")
 
         return jsonify({
             "ok": True,
@@ -269,6 +339,17 @@ def chat():
 
     if not user_message:
         return jsonify({"message": "Tulis pertanyaannya dulu ya."}), 400
+        
+    sid = _session_id()
+    
+    # Deteksi pesan pertama untuk generate judul
+    session_data = SessionManager.load_session(sid)
+    is_first_msg = len(session_data.get("history", [])) == 0
+
+    SessionManager.append_message(sid, "user", user_message)
+
+    if is_first_msg:
+        threading.Thread(target=_update_title_async, args=(sid, user_message)).start()
 
     df, report = _current_dataset()
 
@@ -301,12 +382,15 @@ def chat():
     # EXECUTE ACTION
     # =========================
     if action and df is not None:
-        return jsonify(_answer(action, df, report))
+        result = _answer(action, df, report)
+        SessionManager.append_message(sid, "bot", result.get("message", "Ini hasilnya:"))
+        return jsonify(result)
 
     # =========================
     # FALLBACK CHAT
     # =========================
     fallback = llm_text or "Aku EchaBot. Upload dataset dulu, lalu tanya analisis yang kamu butuhkan."
+    SessionManager.append_message(sid, "bot", fallback)
     return jsonify({"message": fallback})
 
 
