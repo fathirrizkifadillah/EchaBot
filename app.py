@@ -11,7 +11,6 @@ from src.router import route_intent
 from src.session_manager import SessionManager
 import threading
 
-
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
