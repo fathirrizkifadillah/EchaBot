@@ -1,102 +1,98 @@
-import json
+import logging
 import shutil
 import os
+from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
-from datetime import datetime
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = BASE_DIR / "storage" / "sessions"
-UPLOADS_DIR = BASE_DIR / "uploads"
+from src.database import db, ChatSession, ChatMessage, UPLOADS_DIR
 
-# Ensure directories exist
-SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+logger = logging.getLogger(__name__)
+
 
 class SessionManager:
-    @staticmethod
-    def _get_path(session_id: str) -> Path:
-        return SESSIONS_DIR / f"{session_id}.json"
-
     @staticmethod
     def save_session(session_id: str, data: dict):
         if not session_id:
             return
-        
-        # Merge if exists
-        existing = SessionManager.load_session(session_id)
-        if existing:
-            existing.update(data)
-            data = existing
+
+        session = db.session.get(ChatSession, session_id)
+        if session:
+            if "title" in data:
+                session.title = data["title"]
+            if "user_id" in data:
+                session.user_id = data["user_id"]
+            if "dataset_path" in data:
+                session.dataset_path = data["dataset_path"]
+            if "dataset_name" in data:
+                session.dataset_name = data["dataset_name"]
+            session.updated_at = datetime.now(timezone.utc)
         else:
-            if "created_at" not in data:
-                data["created_at"] = datetime.now().isoformat()
-            if "title" not in data:
-                data["title"] = "New Chat"
+            session = ChatSession(
+                id=session_id,
+                title=data.get("title", "New Chat"),
+                user_id=data.get("user_id"),
+                dataset_path=data.get("dataset_path"),
+                dataset_name=data.get("dataset_name"),
+            )
+            db.session.add(session)
 
-        data["updated_at"] = datetime.now().isoformat()
-
-        with open(SessionManager._get_path(session_id), "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        db.session.commit()
 
     @staticmethod
     def load_session(session_id: str) -> dict:
-        path = SessionManager._get_path(session_id)
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+        session = db.session.get(ChatSession, session_id)
+        if not session:
+            return {}
+        return session.to_dict(include_history=True)
 
     @staticmethod
     def list_sessions(user_id=None) -> list:
-        sessions = []
-        for file in SESSIONS_DIR.glob("*.json"):
-            sid = file.stem
-            data = SessionManager.load_session(sid)
-            if data:
-                # Filter by user_id if provided
-                if user_id and data.get("user_id") != user_id:
-                    continue
-                sessions.append({
-                    "id": sid,
-                    "title": data.get("title", "New Chat"),
-                    "created_at": data.get("created_at", ""),
-                    "updated_at": data.get("updated_at", ""),
-                    "dataset_path": data.get("dataset_path", ""),
-                    "dataset_name": data.get("dataset_name", "")
-                })
-        # Sort descending by updated_at
-        sessions.sort(key=lambda x: x["updated_at"], reverse=True)
-        return sessions
+        query = ChatSession.query
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        query = query.order_by(ChatSession.updated_at.desc())
+
+        return [
+            {
+                "id": s.id,
+                "title": s.title,
+                "created_at": s.created_at.isoformat() if s.created_at else "",
+                "updated_at": s.updated_at.isoformat() if s.updated_at else "",
+                "dataset_path": s.dataset_path or "",
+                "dataset_name": s.dataset_name or "",
+            }
+            for s in query.all()
+        ]
 
     @staticmethod
     def delete_session(session_id: str):
-        path = SessionManager._get_path(session_id)
-        if path.exists():
-            path.unlink()
+        session = db.session.get(ChatSession, session_id)
+        if session:
+            db.session.delete(session)
+            db.session.commit()
 
     @staticmethod
     def update_dataset(session_id: str, original_file_path: str, dataset_name: str):
         if not original_file_path or not os.path.exists(original_file_path):
             return
-            
+
         ext = Path(original_file_path).suffix
         persistent_path = UPLOADS_DIR / f"{session_id}_{dataset_name}{ext}"
-        
         shutil.copy2(original_file_path, persistent_path)
-        
+
         SessionManager.save_session(session_id, {
             "dataset_path": str(persistent_path),
-            "dataset_name": dataset_name
+            "dataset_name": dataset_name,
         })
 
     @staticmethod
     def append_message(session_id: str, role: str, content: str):
-        data = SessionManager.load_session(session_id)
-        if "history" not in data:
-            data["history"] = []
-        data["history"].append({"role": role, "content": content})
-        SessionManager.save_session(session_id, data)
+        session = db.session.get(ChatSession, session_id)
+        if not session:
+            session = ChatSession(id=session_id, title="New Chat")
+            db.session.add(session)
+
+        msg = ChatMessage(session_id=session_id, role=role, content=content)
+        db.session.add(msg)
+        session.updated_at = datetime.now(timezone.utc)
+        db.session.commit()

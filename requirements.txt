@@ -1,4 +1,6 @@
 flask
+flask-cors
+flask-sqlalchemy
 groq
 gunicorn
 matplotlib
@@ -6,4 +8,3 @@ openpyxl
 pandas
 python-dotenv
 scikit-learn
-gunicorn

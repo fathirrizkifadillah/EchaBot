@@ -1,5 +1,10 @@
 .env
-venv
-.cursorignore
-.geminiignore
-__pycache__ 
+venv/
+__pycache__/
+*.pyc
+
+# App data
+storage/
+uploads/
+output/
+*.db
