@@ -5,7 +5,10 @@ import {
   getSession,
   createSession,
   deleteSession as apiDeleteSession,
+  listDatasets,
+  activateDataset as apiActivateDataset,
   setActiveSessionId,
+  DatasetInfo,
   SessionInfo,
 } from "@/lib/api";
 
@@ -14,6 +17,7 @@ const STORAGE_KEY = "echabot_active_session";
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [restored, setRestored] = useState(false);
 
@@ -34,6 +38,17 @@ export function useSessions() {
     }
   }, []);
 
+  const loadDatasets = useCallback(async (id: string) => {
+    try {
+      const res = await listDatasets(id);
+      if (res.ok) setDatasets(res.datasets);
+      return res.ok ? res.datasets : [];
+    } catch {
+      setDatasets([]);
+      return [];
+    }
+  }, []);
+
   // On mount: load session list, restore last active session
   useEffect(() => {
     let cancelled = false;
@@ -42,43 +57,61 @@ export function useSessions() {
       .then((res) => {
         if (cancelled) return;
         if (res.ok) setSessions(res.sessions);
-
         const savedId = sessionStorage.getItem(STORAGE_KEY);
         if (savedId && res.sessions?.some((s) => s.id === savedId)) {
           setActiveId(savedId);
           setActiveSessionId(savedId);
+          loadDatasets(savedId);
         }
         setRestored(true);
       })
-      .catch(() => {
-        setRestored(true);
-      });
+      .catch(() => setRestored(true));
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => { cancelled = true; };
+  }, [loadDatasets]);
 
-  const switchTo = useCallback(
-    async (id: string) => {
+  const switchDataset = useCallback(
+    async (datasetId: string) => {
+      if (!activeId) return null;
       setLoading(true);
       try {
-        const res = await getSession(id);
-        updateActiveId(id);
-        return res.ok ? res.session : null;
+        const res = await apiActivateDataset(activeId, datasetId);
+        if (!res.ok) return null;
+        setDatasets(res.datasets);
+        const detail = await getSession(activeId);
+        return detail.ok ? detail.session : null;
       } catch {
         return null;
       } finally {
         setLoading(false);
       }
     },
-    [updateActiveId]
+    [activeId]
+  );
+
+  const switchTo = useCallback(
+    async (id: string) => {
+      setLoading(true);
+      try {
+        const res = await getSession(id);
+        if (!res.ok) return null;
+        updateActiveId(id);
+        await loadDatasets(id);
+        return res.session;
+      } catch {
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadDatasets, updateActiveId]
   );
 
   const startNew = useCallback(async () => {
     try {
       const res = await createSession();
       if (res.ok) {
+        setDatasets([]);
         updateActiveId(res.session_id);
         await refresh();
         return res.session_id;
@@ -102,5 +135,17 @@ export function useSessions() {
     [activeId, updateActiveId]
   );
 
-  return { sessions, activeId, loading, restored, refresh, switchTo, startNew, remove };
+  return {
+    sessions,
+    activeId,
+    datasets,
+    loading,
+    restored,
+    refresh,
+    loadDatasets,
+    switchTo,
+    switchDataset,
+    startNew,
+    remove,
+  };
 }

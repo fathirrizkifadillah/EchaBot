@@ -40,6 +40,19 @@ def _migrate_schema():
         db.session.commit()
         logger.info("Migrated chat_sessions.user_id")
 
+    if "active_dataset_id" not in columns:
+        db.session.execute(
+            text("ALTER TABLE chat_sessions ADD COLUMN active_dataset_id VARCHAR(64)")
+        )
+        db.session.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_chat_sessions_active_dataset_id "
+                "ON chat_sessions (active_dataset_id)"
+            )
+        )
+        db.session.commit()
+        logger.info("Migrated chat_sessions.active_dataset_id")
+
     legacy_owner = os.getenv("LEGACY_SESSION_OWNER_ID", "").strip()
     if legacy_owner:
         updated = db.session.execute(
@@ -97,6 +110,7 @@ def create_app():
         resources={
             r"/api/*": {"origins": allowed_origins},
             r"/chat": {"origins": allowed_origins},
+            r"/chat/*": {"origins": allowed_origins},
             r"/upload": {"origins": allowed_origins},
             r"/use-sample": {"origins": allowed_origins},
             r"/output/*": {"origins": allowed_origins},
@@ -141,9 +155,11 @@ def create_app():
         _migrate_schema()
 
     from api.routes.chat import chat_bp
+    from api.routes.export import export_bp
     from api.routes.sessions import sessions_bp
 
     app.register_blueprint(chat_bp)
+    app.register_blueprint(export_bp)
     app.register_blueprint(sessions_bp, url_prefix="/api/sessions")
 
     return app

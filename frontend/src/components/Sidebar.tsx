@@ -4,20 +4,24 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  Download,
   FileSpreadsheet,
   History,
   MessageSquarePlus,
   Trash2,
   Upload,
 } from "lucide-react";
-import { SessionInfo } from "@/lib/api";
+import { DatasetInfo, SessionInfo } from "@/lib/api";
 
 interface SidebarProps {
   sessions: SessionInfo[];
   activeId: string | null;
   datasetName?: string;
+  datasets: DatasetInfo[];
   uploading: boolean;
   onUpload: (file: File) => void;
+  onDatasetSelect: (id: string) => void;
+  onExport: (format: "pdf" | "xlsx") => void;
   onSample: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
@@ -28,8 +32,11 @@ export default function Sidebar({
   sessions,
   activeId,
   datasetName,
+  datasets,
   uploading,
   onUpload,
+  onDatasetSelect,
+  onExport,
   onSample,
   onNew,
   onSelect,
@@ -101,6 +108,20 @@ export default function Sidebar({
         <div className="mx-4 mb-3 rounded-lg border border-teal-400/20 bg-teal-400/[.06] px-3 py-2.5">
           <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-teal-300"><span className="h-1.5 w-1.5 rounded-full bg-teal-400" />Dataset aktif</div>
           <p className="mt-1 truncate text-xs text-zinc-300">{datasetName}</p>
+          {datasets.length > 1 && (
+            <select
+              value={datasets.find((item) => item.active)?.id || ""}
+              onChange={(event) => onDatasetSelect(event.target.value)}
+              className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-[11px] text-zinc-300 outline-none focus:border-teal-400/50"
+              aria-label="Pilih dataset aktif"
+            >
+              {datasets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          )}
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={() => onExport("pdf")} className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 py-1.5 text-[10px] text-zinc-400 transition hover:border-teal-400/40 hover:text-teal-300"><Download size={12} /> PDF</button>
+            <button onClick={() => onExport("xlsx")} className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 py-1.5 text-[10px] text-zinc-400 transition hover:border-teal-400/40 hover:text-teal-300"><Download size={12} /> XLSX</button>
+          </div>
         </div>
       )}
 

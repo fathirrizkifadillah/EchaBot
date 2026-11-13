@@ -3,10 +3,11 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from werkzeug.utils import secure_filename
 
-from src.database import db, ChatSession, ChatMessage, UPLOADS_DIR
+from src.database import Dataset, db, ChatSession, ChatMessage, UPLOADS_DIR
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = BASE_DIR / "output"
@@ -91,44 +92,82 @@ class SessionManager:
         session = db.session.get(ChatSession, session_id)
         if not session:
             return
-        dataset_path = _managed_file(session.dataset_path, UPLOADS_DIR)
+        dataset_paths = [
+            managed
+            for managed in (
+                _managed_file(dataset.path, UPLOADS_DIR)
+                for dataset in session.datasets
+            )
+            if managed
+        ]
         output_paths = list(OUTPUT_DIR.glob(f"{session_id}_*"))
         db.session.delete(session)
         db.session.commit()
-        if dataset_path:
+        for dataset_path in dataset_paths:
             dataset_path.unlink(missing_ok=True)
         for output_path in output_paths:
             if output_path.is_file():
                 output_path.unlink(missing_ok=True)
 
     @staticmethod
+    def add_dataset(session_id: str, dataset_name: str, original_file_path: str):
+        if not original_file_path or not os.path.exists(original_file_path):
+            return None
+        safe_name = secure_filename(dataset_name or "dataset") or "dataset"
+        source_suffix = Path(original_file_path).suffix.lower()
+        extension = source_suffix or Path(safe_name).suffix.lower()
+        stem = secure_filename(Path(safe_name).stem) or "dataset"
+        session = db.session.get(ChatSession, session_id)
+        existing_count = len(session.datasets) if session else 0
+        if existing_count:
+            filename = f"{session_id}_{uuid4().hex[:10]}_{stem}{extension}"
+        else:
+            filename = f"{session_id}_{stem}{extension}"
+        persistent_path = UPLOADS_DIR / filename
+        shutil.copy2(original_file_path, persistent_path)
+        dataset = Dataset(session_id=session_id, name=safe_name, path=str(persistent_path))
+        if not session:
+            session = ChatSession(id=session_id, title="New Chat")
+            db.session.add(session)
+        db.session.add(dataset)
+        db.session.flush()
+        if not session.active_dataset_id:
+            session.active_dataset_id = dataset.id
+            session.dataset_path = dataset.path
+            session.dataset_name = dataset.name
+        db.session.commit()
+        return dataset
+
+    @staticmethod
+    def list_datasets(session_id: str) -> list:
+        session = db.session.get(ChatSession, session_id)
+        if not session:
+            return []
+        return [
+            {**dataset.to_dict(), "active": dataset.id == session.active_dataset_id}
+            for dataset in session.datasets
+        ]
+
+    @staticmethod
+    def set_active_dataset(session_id: str, dataset_id: str) -> bool:
+        dataset = Dataset.query.filter_by(id=dataset_id, session_id=session_id).first()
+        session = db.session.get(ChatSession, session_id)
+        if not dataset or not session:
+            return False
+        session.active_dataset_id = dataset.id
+        session.dataset_path = dataset.path
+        session.dataset_name = dataset.name
+        session.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return True
+
+    @staticmethod
     def update_dataset(session_id: str, original_file_path: str, dataset_name: str):
         if not original_file_path or not os.path.exists(original_file_path):
             return
-
-        safe_name = secure_filename(dataset_name or "dataset") or "dataset"
-        source_suffix = Path(original_file_path).suffix.lower()
-        name_suffix = Path(safe_name).suffix.lower()
-        if source_suffix and name_suffix == source_suffix:
-            stem = Path(safe_name).stem
-            extension = source_suffix
-        else:
-            stem = Path(safe_name).stem
-            extension = source_suffix or name_suffix
-        safe_stem = secure_filename(stem) or "dataset"
-        persistent_name = f"{session_id}_{safe_stem}{extension}"
-        persistent_path = UPLOADS_DIR / persistent_name
-
-        session = db.session.get(ChatSession, session_id)
-        previous_path = _managed_file(session.dataset_path, UPLOADS_DIR) if session else None
-        shutil.copy2(original_file_path, persistent_path)
-
-        SessionManager.save_session(session_id, {
-            "dataset_path": str(persistent_path),
-            "dataset_name": safe_name,
-        })
-        if previous_path and previous_path != persistent_path:
-            previous_path.unlink(missing_ok=True)
+        dataset = SessionManager.add_dataset(session_id, dataset_name, original_file_path)
+        if dataset:
+            SessionManager.set_active_dataset(session_id, dataset.id)
 
     @staticmethod
     def append_message(session_id: str, role: str, content: str, user_id: str | None = None):

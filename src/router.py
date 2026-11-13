@@ -10,6 +10,9 @@ def _parse_limit(text: str):
 def route_intent(user_input: str):
     text = user_input.lower()
 
+    if any(keyword in text for keyword in ["jalankan kode", "eksekusi kode", "buat kode", "pakai python", "hitung dengan kode"]):
+        return "code_execution"
+
     # detect preview with limit
     if any(k in text for k in ["preview", "lihat data", "contoh data", "head", "baris", "data"]):
         limit = _parse_limit(text)

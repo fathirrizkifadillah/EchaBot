@@ -24,12 +24,19 @@ Action yang tersedia:
 - summary
 - preprocessing
 - correlation_heatmap
+- model_evaluation (opsional params: target_col)
+- code_execution (params wajib: code; kode harus menetapkan variabel result)
 - plot_custom (butuh params: kind=line|bar|scatter, x, y, agg=sum|mean|median)
 - histogram_column (butuh params: column)
 - boxplot_column (butuh params: column)
 - columns
 - preview
 - describe
+
+Untuk code_execution, hanya gunakan df, pd, dan np yang sudah tersedia. Jangan import modul,
+akses filesystem/network, atau memakai builtins introspeksi. Contoh:
+{{"action":"code_execution","params":{{"code":"result = df['sales'].groupby(df['category']).sum()"}}}}
+Untuk evaluasi model, gunakan target_col hanya jika user menyebutkan nama kolom target.
 
 Format data request:
 {{"action": "plot_custom", "params": {{"kind": "line", "x": "kolom1", "y": "kolom2", "agg": "sum"}}}}
@@ -87,6 +94,47 @@ def get_intent(user_input, df_context=None, history=None):
         return clean_output(response.choices[0].message.content)
     except Exception as exc:
         return f"LLM error: {type(exc).__name__}: {str(exc)}"
+
+
+def get_intent_stream(user_input, df_context=None, history=None):
+    """Yield incremental LLM text chunks for SSE responses."""
+    api_key = (os.getenv("GROQ_API_KEY") or os.getenv("API_KEY") or "").strip()
+    if not api_key:
+        yield "LLM belum aktif: API_KEY / GROQ_API_KEY tidak ditemukan di environment (.env)."
+        return
+
+    try:
+        from groq import Groq
+
+        requested = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
+        model_alias = {
+            "gpt-oss": "openai/gpt-oss-120b",
+            "gpt-oss-120b": "openai/gpt-oss-120b",
+        }
+        model = model_alias.get(requested, requested)
+        columns_context = ""
+        if df_context is not None:
+            columns_context = f"Kolom dataset saat ini: {', '.join(map(str, df_context.columns))}"
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT.format(columns_context=columns_context)}]
+        if history:
+            for msg in history[-10:]:
+                messages.append({"role": msg.get("role", "user"), "content": str(msg.get("content", ""))})
+        messages.append({"role": "user", "content": user_input})
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.2,
+            stream=True,
+        )
+        for chunk in response:
+            delta = getattr(chunk.choices[0].delta, "content", None)
+            if delta:
+                yield delta
+    except Exception as exc:
+        yield f"LLM error: {type(exc).__name__}: {str(exc)}"
 
 
 def parse_intent(text):

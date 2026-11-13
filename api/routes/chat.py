@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import tempfile
@@ -6,13 +7,23 @@ from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
-from flask import Blueprint, jsonify, render_template, request, send_from_directory, session
+from flask import (
+    Blueprint,
+    Response,
+    jsonify,
+    render_template,
+    request,
+    send_from_directory,
+    session,
+    stream_with_context,
+)
 from werkzeug.exceptions import NotFound
 import threading
 
 from api.identity import current_owner_id
 from src import tools
-from src.llm import get_intent, parse_intent, generate_chat_title
+from src.code_executor import execute_code
+from src.llm import get_intent, get_intent_stream, parse_intent, generate_chat_title
 from src.loader import load_data, preprocess_data
 from src.router import route_intent
 from src.session_manager import SessionManager
@@ -120,7 +131,8 @@ def _answer(action, df, report):
         "summary": lambda: tools.dataset_summary(df),
         "preprocessing": lambda: tools.preprocessing_summary(report),
         "correlation_heatmap": lambda: tools.correlation_heatmap(df),
-        "model_evaluation": lambda: tools.model_evaluation(df),
+        "model_evaluation": lambda: tools.model_evaluation(df, target_col=params.get("target_col")),
+        "code_execution": lambda: execute_code(params.get("code", ""), df),
         "columns": lambda: {
             "message": "Ini daftar kolom pada dataset yang sedang aktif.",
             "rows": [{"column": col, "dtype": str(df[col].dtype)} for col in df.columns],
@@ -355,6 +367,69 @@ def chat():
     fallback = llm_text or "Aku EchaBot. Upload dataset dulu, lalu tanya analisis yang kamu butuhkan."
     SessionManager.append_message(sid, "bot", fallback)
     return jsonify({"message": fallback})
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@chat_bp.route("/chat/stream", methods=["POST"])
+def chat_stream():
+    from flask import current_app
+
+    payload = request.get_json(silent=True) or {}
+    user_message = payload.get("message", "").strip()
+    history = payload.get("history", [])
+    if not user_message:
+        return jsonify({"message": "Tulis pertanyaannya dulu ya."}), 400
+
+    sid = _session_id()
+    session_data = SessionManager.load_session(sid)
+    is_first_msg = len(session_data.get("history", [])) == 0
+    SessionManager.append_message(sid, "user", user_message)
+    if is_first_msg:
+        threading.Thread(
+            target=_update_title_async,
+            args=(current_app._get_current_object(), sid, user_message),
+        ).start()
+
+    df, report = _current_dataset()
+
+    @stream_with_context
+    def generate():
+        chunks = []
+        try:
+            for chunk in get_intent_stream(user_message, df, history):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                yield _sse_event("token", {"text": chunk})
+
+            llm_text = "".join(chunks)
+            action = parse_intent(llm_text) if llm_text else None
+            if not action:
+                action = route_intent(user_message)
+
+            if action and df is None:
+                result = {"message": "Upload dataset dulu, atau klik tombol pakai sample Walmart Sales."}
+            elif action and df is not None:
+                result = _answer(action, df, report)
+            else:
+                result = {"message": llm_text or "Aku EchaBot. Upload dataset dulu, lalu tanya analisis yang kamu butuhkan."}
+
+            SessionManager.append_message(sid, "bot", result.get("message", "Ini hasilnya:"))
+            yield _sse_event("done", result)
+        except Exception:
+            logger.exception("Streaming chat failed")
+            result = {"message": "Terjadi kesalahan saat memproses streaming chat."}
+            SessionManager.append_message(sid, "bot", result["message"])
+            yield _sse_event("error", result)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @chat_bp.route("/output/<path:filename>")

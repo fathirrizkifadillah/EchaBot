@@ -62,9 +62,61 @@ export interface ChatResponse {
   preview?: Record<string, string>[];
 }
 
+export async function streamMessage(
+  message: string,
+  history: { role: string; content: string }[],
+  onToken: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
+  headers.set("X-CSRF-Token", await getCsrfToken());
+
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    credentials: "include",
+    headers,
+    signal,
+    body: JSON.stringify({ message, history }),
+  });
+  if (!res.ok || !res.body) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || res.statusText);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: ChatResponse | null = null;
+
+  const consume = (chunk: string) => {
+    buffer += chunk;
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    for (const event of events) {
+      const eventName = event.match(/^event: (.+)$/m)?.[1];
+      const dataLine = event.match(/^data: (.+)$/m)?.[1];
+      if (!dataLine) continue;
+      const data = JSON.parse(dataLine);
+      if (eventName === "token") onToken(data.text || "");
+      if (eventName === "done") finalResult = data as ChatResponse;
+      if (eventName === "error") throw new Error(data.message || "Streaming gagal.");
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    consume(decoder.decode(value, { stream: true }));
+  }
+  consume(decoder.decode());
+  return finalResult || { message: "Streaming selesai tanpa hasil." };
+}
+
 export function sendMessage(message: string, history: { role: string; content: string }[]): Promise<ChatResponse> {
   return request("/chat", { method: "POST", body: JSON.stringify({ message, history }) });
 }
+
 
 export interface UploadResponse {
   ok: boolean;
@@ -97,6 +149,13 @@ export interface SessionDetail extends SessionInfo {
   dataset_report?: Record<string, unknown>;
 }
 
+export interface DatasetInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  active: boolean;
+}
+
 export function listSessions(): Promise<{ ok: boolean; sessions: SessionInfo[] }> {
   return request("/api/sessions");
 }
@@ -111,4 +170,38 @@ export function createSession(): Promise<{ ok: boolean; session_id: string }> {
 
 export function deleteSession(id: string): Promise<{ ok: boolean }> {
   return request(`/api/sessions/${id}`, { method: "DELETE" });
+}
+
+export function listDatasets(id: string): Promise<{ ok: boolean; datasets: DatasetInfo[] }> {
+  return request(`/api/sessions/${id}/datasets`);
+}
+
+export function activateDataset(
+  sessionId: string,
+  datasetId: string,
+): Promise<{ ok: boolean; datasets: DatasetInfo[] }> {
+  return request(`/api/sessions/${sessionId}/datasets/${datasetId}/active`, { method: "PUT" });
+}
+
+export async function downloadExport(format: "pdf" | "xlsx"): Promise<void> {
+  const headers = new Headers({ "X-CSRF-Token": await getCsrfToken() });
+  if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
+  const response = await fetch(`${API_BASE}/export/${format}`, {
+    method: "POST",
+    credentials: "include",
+    headers,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "Export gagal." }));
+    throw new Error(error.message || "Export gagal.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `echabot-export.${format}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
-import { sendMessage, ChatResponse, resolveApiUrl } from "@/lib/api";
+import { streamMessage, ChatResponse, resolveApiUrl } from "@/lib/api";
 
 export interface Message {
   id: string;
@@ -44,7 +44,20 @@ export function useChat() {
 
       try {
         abortRef.current = new AbortController();
-        const res: ChatResponse = await sendMessage(text, history);
+        const res: ChatResponse = await streamMessage(
+          text,
+          history,
+          (token) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === botPlaceholder.id
+                  ? { ...m, content: `${m.content}${token}`, loading: false }
+                  : m
+              )
+            );
+          },
+          abortRef.current.signal,
+        );
         setMessages((prev) =>
           prev.map((m) =>
             m.id === botPlaceholder.id

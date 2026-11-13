@@ -68,6 +68,26 @@ def get_session(session_id):
     return jsonify({"ok": True, "session": data})
 
 
+@sessions_bp.route("/<session_id>/datasets", methods=["GET"])
+def get_datasets(session_id):
+    if not _owned_session(session_id):
+        return jsonify({"ok": False, "message": "Sesi tidak ditemukan"}), 404
+    return jsonify({"ok": True, "datasets": SessionManager.list_datasets(session_id)})
+
+
+@sessions_bp.route("/<session_id>/datasets/<dataset_id>/active", methods=["PUT"])
+def activate_dataset(session_id, dataset_id):
+    if not _owned_session(session_id):
+        return jsonify({"ok": False, "message": "Sesi tidak ditemukan"}), 404
+    if not SessionManager.set_active_dataset(session_id, dataset_id):
+        return jsonify({"ok": False, "message": "Dataset tidak ditemukan"}), 404
+
+    datasets, reports = _get_caches()
+    datasets.pop(session_id, None)
+    reports.pop(session_id, None)
+    return jsonify({"ok": True, "datasets": SessionManager.list_datasets(session_id)})
+
+
 @sessions_bp.route("/<session_id>", methods=["DELETE"])
 def delete_session(session_id):
     if not _owned_session(session_id):

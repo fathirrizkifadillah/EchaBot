@@ -5,7 +5,7 @@ import ChatPanel from "@/components/ChatPanel";
 import { useChat } from "@/hooks/useChat";
 import { useDataset } from "@/hooks/useDataset";
 import { useSessions } from "@/hooks/useSessions";
-import { getSession } from "@/lib/api";
+import { downloadExport, getSession } from "@/lib/api";
 
 export default function Home() {
   const chat = useChat();
@@ -41,22 +41,65 @@ export default function Home() {
   }, [sessions.restored]);
 
   const handleUpload = useCallback(async (file: File) => {
+    let sessionId = sessions.activeId;
+    if (!sessionId) {
+      sessionId = await sessions.startNew();
+      if (!sessionId) {
+        showNotice("Gagal membuat sesi baru.");
+        return;
+      }
+    }
     const res = await dataset.upload(file);
     if (!res.ok) showNotice(res.message);
     else {
       await sessions.refresh();
+      await sessions.loadDatasets(sessionId);
       showNotice(`${file.name} siap dianalisis`);
     }
   }, [dataset, sessions, showNotice]);
 
   const handleSample = useCallback(async () => {
+    let sessionId = sessions.activeId;
+    if (!sessionId) {
+      sessionId = await sessions.startNew();
+      if (!sessionId) {
+        showNotice("Gagal membuat sesi baru.");
+        return;
+      }
+    }
     const res = await dataset.loadSample();
     if (!res.ok) showNotice(res.message);
     else {
       await sessions.refresh();
+      await sessions.loadDatasets(sessionId);
       showNotice("Sample Walmart Sales siap dianalisis");
     }
   }, [dataset, sessions, showNotice]);
+
+  const handleDatasetSelect = useCallback(async (datasetId: string) => {
+    const detail = await sessions.switchDataset(datasetId);
+    if (!detail) {
+      showNotice("Gagal mengganti dataset.");
+      return;
+    }
+    if (detail.dataset_name) {
+      dataset.setActive(
+        detail.dataset_name,
+        detail.dataset_preview || [],
+        detail.dataset_report || {}
+      );
+    } else dataset.clear();
+    showNotice(`Dataset aktif: ${detail.dataset_name || "tidak ada"}`);
+  }, [sessions, dataset, showNotice]);
+
+  const handleExport = useCallback(async (format: "pdf" | "xlsx") => {
+    try {
+      await downloadExport(format);
+      showNotice(`Export ${format.toUpperCase()} berhasil diunduh`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Export gagal.");
+    }
+  }, [showNotice]);
 
   const handleSend = useCallback(async (text: string) => {
     await chat.send(text);
@@ -88,8 +131,11 @@ export default function Home() {
         sessions={sessions.sessions}
         activeId={sessions.activeId}
         datasetName={dataset.dataset?.name}
+        datasets={sessions.datasets}
         uploading={dataset.uploading}
         onUpload={handleUpload}
+        onDatasetSelect={handleDatasetSelect}
+        onExport={handleExport}
         onSample={handleSample}
         onNew={handleNew}
         onSelect={handleSelect}

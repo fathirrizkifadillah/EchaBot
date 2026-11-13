@@ -1,5 +1,8 @@
+import logging
 from pathlib import Path
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from werkzeug.utils import secure_filename
 
@@ -192,20 +195,158 @@ def correlation_heatmap(df):
     }
 
 
-def model_evaluation(df):
+def model_evaluation(df, target_col: str | None = None):
+    """Auto-ML: detect classification vs regression, train models, return metrics + feature importance."""
     try:
         from sklearn.compose import ColumnTransformer
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        from sklearn.linear_model import LogisticRegression, LinearRegression
+        from sklearn.metrics import (
+            accuracy_score, f1_score, precision_score, recall_score,
+            mean_absolute_error, mean_squared_error, r2_score,
+        )
         from sklearn.model_selection import train_test_split
         from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
+        import numpy as np
     except ImportError:
-        return {
-            "message": "Fitur evaluasi model butuh scikit-learn. Jalankan: pip install -r requirements.txt",
-        }
+        return {"message": "Fitur evaluasi model butuh scikit-learn. Jalankan: pip install -r requirements.txt"}
 
-    return {
-        "message": "Fitur evaluasi model otomatis saat ini membutuhkan kolom target tertentu dan sedang dalam pengembangan untuk dataset universal. Silakan manfaatkan fitur visualisasi untuk analisis korelasi.",
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    cat_cols = df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
+
+    # Auto-detect target: use provided, or last numeric column, or last column
+    if target_col and target_col in df.columns:
+        target = target_col
+    elif numeric_cols:
+        target = numeric_cols[-1]
+    elif cat_cols:
+        target = cat_cols[-1]
+    else:
+        return {"message": "Dataset tidak punya kolom yang bisa dijadikan target."}
+
+    feature_cols = [c for c in df.columns if c != target]
+    if not feature_cols:
+        return {"message": "Dataset hanya punya 1 kolom, butuh minimal 2 kolom untuk evaluasi model."}
+
+    # Drop rows where target is NA
+    clean_df = df[feature_cols + [target]].dropna(subset=[target])
+    if len(clean_df) < 10:
+        return {"message": "Data terlalu sedikit (kurang dari 10 baris) untuk evaluasi model."}
+
+    X = clean_df[feature_cols]
+    y = clean_df[target]
+
+    # Detect task type
+    is_classification = False
+    if pd.api.types.is_string_dtype(y) or y.dtype.name == "category":
+        is_classification = True
+    elif pd.api.types.is_numeric_dtype(y):
+        n_unique = y.nunique()
+        if n_unique <= 15 and n_unique / len(y) < 0.05:
+            is_classification = True
+
+    # Encode target for classification
+    label_encoder = None
+    if is_classification:
+        label_encoder = LabelEncoder()
+        y = pd.Series(label_encoder.fit_transform(y.astype(str)), index=y.index)
+
+    # Build preprocessor
+    num_features = [c for c in feature_cols if c in numeric_cols]
+    cat_features = [c for c in feature_cols if c in cat_cols]
+
+    transformers = []
+    if num_features:
+        transformers.append(("num", StandardScaler(), num_features))
+    if cat_features:
+        transformers.append(("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False, max_categories=20), cat_features))
+
+    if not transformers:
+        return {"message": "Tidak ada fitur yang bisa diproses (butuh kolom numerik atau kategorikal)."}
+
+    preprocessor = ColumnTransformer(transformers, remainder="drop")
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    task_label = "Klasifikasi" if is_classification else "Regresi"
+    results = []
+
+    if is_classification:
+        models = [
+            ("Random Forest", RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)),
+            ("Logistic Regression", LogisticRegression(max_iter=1000, random_state=42)),
+        ]
+        for name, model in models:
+            try:
+                pipe = Pipeline([("prep", preprocessor), ("model", model)])
+                pipe.fit(X_train, y_train)
+                y_pred = pipe.predict(X_test)
+                avg = "weighted" if y.nunique() > 2 else "binary"
+                metrics = {
+                    "Model": name,
+                    "Accuracy": f"{accuracy_score(y_test, y_pred):.4f}",
+                    "Precision": f"{precision_score(y_test, y_pred, average=avg, zero_division=0):.4f}",
+                    "Recall": f"{recall_score(y_test, y_pred, average=avg, zero_division=0):.4f}",
+                    "F1 Score": f"{f1_score(y_test, y_pred, average=avg, zero_division=0):.4f}",
+                }
+                results.append(metrics)
+            except Exception as e:
+                results.append({"Model": name, "Status": f"Error: {e}"})
+    else:
+        models = [
+            ("Random Forest", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)),
+            ("Linear Regression", LinearRegression()),
+        ]
+        for name, model in models:
+            try:
+                pipe = Pipeline([("prep", preprocessor), ("model", model)])
+                pipe.fit(X_train, y_train)
+                y_pred = pipe.predict(X_test)
+                metrics = {
+                    "Model": name,
+                    "R² Score": f"{r2_score(y_test, y_pred):.4f}",
+                    "MAE": f"{mean_absolute_error(y_test, y_pred):.4f}",
+                    "RMSE": f"{np.sqrt(mean_squared_error(y_test, y_pred)):.4f}",
+                }
+                results.append(metrics)
+            except Exception as e:
+                results.append({"Model": name, "Status": f"Error: {e}"})
+
+    # Feature importance from the best tree model
+    image_path = None
+    try:
+        rf_pipe = Pipeline([("prep", preprocessor), ("model",
+            RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1) if is_classification
+            else RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+        )])
+        rf_pipe.fit(X_train, y_train)
+        importances = rf_pipe.named_steps["model"].feature_importances_
+        feature_names = rf_pipe.named_steps["prep"].get_feature_names_out()
+        # Clean feature names
+        feature_names = [str(f).split("__")[-1] for f in feature_names]
+
+        top_n = min(15, len(feature_names))
+        sorted_idx = sorted(range(len(importances)), key=lambda i: importances[i], reverse=True)[:top_n]
+        top_names = [feature_names[i] for i in sorted_idx]
+        top_values = [importances[i] for i in sorted_idx]
+
+        path = _image_path("feature_importance")
+        fig, ax = plt.subplots(figsize=(9, max(4, top_n * 0.35)))
+        ax.barh(range(top_n), top_values[::-1], color="#14b8a6", edgecolor="none")
+        ax.set_yticks(range(top_n))
+        ax.set_yticklabels(top_names[::-1], fontsize=9)
+        ax.set_xlabel("Importance")
+        ax.set_title(f"Feature Importance (Random Forest {task_label})")
+        image_path = _save_plot(path)
+    except Exception as e:
+        logger.warning("Feature importance chart failed: %s", e)
+
+    response = {
+        "message": f"Evaluasi model ({task_label}) dengan target kolom `{target}`. Data: {len(X_train)} train, {len(X_test)} test.",
+        "rows": results,
     }
+    if image_path:
+        response["image"] = image_path
+
+    return response

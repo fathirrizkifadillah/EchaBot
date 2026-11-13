@@ -7,4 +7,5 @@ matplotlib
 openpyxl
 pandas
 python-dotenv
+reportlab
 scikit-learn

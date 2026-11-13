@@ -1,9 +1,9 @@
-import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from flask_sqlalchemy import SQLAlchemy
+
 
 db = SQLAlchemy()
 
@@ -20,13 +20,26 @@ class ChatSession(db.Model):
     title = db.Column(db.String(256), default="New Chat")
     dataset_path = db.Column(db.String(512), nullable=True)
     dataset_name = db.Column(db.String(256), nullable=True)
+    active_dataset_id = db.Column(db.String(64), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
-                           onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
-    messages = db.relationship("ChatMessage", backref="session",
-                               cascade="all, delete-orphan",
-                               order_by="ChatMessage.created_at")
+    messages = db.relationship(
+        "ChatMessage",
+        backref="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+    )
+    datasets = db.relationship(
+        "Dataset",
+        backref="session",
+        cascade="all, delete-orphan",
+        order_by="Dataset.created_at",
+    )
 
     def to_dict(self, include_history=False, include_private=False):
         data = {
@@ -39,22 +52,41 @@ class ChatSession(db.Model):
         if include_private:
             data["user_id"] = self.user_id
             data["dataset_path"] = self.dataset_path
+            data["active_dataset_id"] = self.active_dataset_id
         if include_history:
-            data["history"] = [m.to_dict() for m in self.messages]
+            data["history"] = [message.to_dict() for message in self.messages]
         return data
+
+
+class Dataset(db.Model):
+    __tablename__ = "datasets"
+
+    id = db.Column(db.String(64), primary_key=True, default=lambda: uuid4().hex)
+    session_id = db.Column(
+        db.String(64), db.ForeignKey("chat_sessions.id"), nullable=False, index=True
+    )
+    name = db.Column(db.String(256), nullable=False)
+    path = db.Column(db.String(512), nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+        }
 
 
 class ChatMessage(db.Model):
     __tablename__ = "chat_messages"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    session_id = db.Column(db.String(64), db.ForeignKey("chat_sessions.id"), nullable=False, index=True)
+    session_id = db.Column(
+        db.String(64), db.ForeignKey("chat_sessions.id"), nullable=False, index=True
+    )
     role = db.Column(db.String(16), nullable=False)  # "user" or "bot"
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
-        return {
-            "role": self.role,
-            "content": self.content,
-        }
+        return {"role": self.role, "content": self.content}
