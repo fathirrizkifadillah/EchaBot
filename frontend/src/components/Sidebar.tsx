@@ -9,7 +9,6 @@ import {
   MessageSquarePlus,
   Trash2,
   Upload,
-  X,
 } from "lucide-react";
 import { SessionInfo } from "@/lib/api";
 

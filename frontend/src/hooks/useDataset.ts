@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback } from "react";
-import { uploadFile, useSample, UploadResponse } from "@/lib/api";
+import { uploadFile, loadSample as loadSampleApi, UploadResponse } from "@/lib/api";
 
 export interface DatasetState {
   name: string;
@@ -49,7 +49,7 @@ export function useDataset() {
     setUploading(true);
     setError(null);
     try {
-      const res = await useSample();
+      const res: UploadResponse = await loadSampleApi();
       handleResult(res, "Walmart_Sales.csv");
       return res;
     } catch (err) {
@@ -61,10 +61,22 @@ export function useDataset() {
     }
   }, [handleResult]);
 
+  const setActive = useCallback(
+    (
+      name: string,
+      preview: Record<string, string>[] = [],
+      report: Record<string, unknown> = {}
+    ) => {
+      setDataset({ name, preview, report });
+      setError(null);
+    },
+    []
+  );
+
   const clear = useCallback(() => {
     setDataset(null);
     setError(null);
   }, []);
 
-  return { dataset, uploading, error, upload, loadSample, clear };
+  return { dataset, uploading, error, upload, loadSample, setActive, clear };
 }

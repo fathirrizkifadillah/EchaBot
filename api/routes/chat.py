@@ -7,8 +7,10 @@ from uuid import uuid4
 
 import pandas as pd
 from flask import Blueprint, jsonify, render_template, request, send_from_directory, session
+from werkzeug.exceptions import NotFound
 import threading
 
+from api.identity import current_owner_id
 from src import tools
 from src.llm import get_intent, parse_intent, generate_chat_title
 from src.loader import load_data, preprocess_data
@@ -28,9 +30,50 @@ REPORTS = {}
 
 
 def _session_id():
-    if "sid" not in session:
-        session["sid"] = uuid4().hex
+    owner_id = current_owner_id()
+    requested_id = request.headers.get("X-Session-Id")
+    if requested_id:
+        existing = SessionManager.load_session(requested_id, include_private=True)
+        if not existing or existing.get("user_id") != owner_id:
+            raise NotFound("Sesi tidak ditemukan")
+        return requested_id
+
+    existing_id = session.get("sid")
+    if existing_id:
+        existing = SessionManager.load_session(existing_id, include_private=True)
+        if existing and existing.get("user_id") == owner_id:
+            return existing_id
+
+    session["sid"] = uuid4().hex
+    SessionManager.save_session(session["sid"], {"user_id": owner_id})
     return session["sid"]
+
+
+def _owned_output_path(filename: str):
+    parts = filename.split("_", 1)
+    if len(parts) != 2:
+        return None
+    owner_session = SessionManager.load_session(parts[0], include_private=True)
+    if not owner_session or owner_session.get("user_id") != current_owner_id():
+        return None
+    candidate = (OUTPUT_DIR / filename).resolve()
+    if candidate.parent != OUTPUT_DIR.resolve() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _scope_image_result(result: dict):
+    if not isinstance(result, dict) or not result.get("image"):
+        return result
+    source = Path(result["image"])
+    if source.parent.resolve() != OUTPUT_DIR.resolve() or not source.is_file():
+        return result
+    sid = _session_id()
+    scoped = OUTPUT_DIR / f"{sid}_{source.name}"
+    source.replace(scoped)
+    scoped_result = result.copy()
+    scoped_result["image"] = str(scoped)
+    return scoped_result
 
 
 def _current_dataset():
@@ -53,6 +96,7 @@ def _image_payload(result: dict):
         return {"message": "Terjadi kesalahan saat memproses hasil."}
 
     result = result.copy()
+    result = _scope_image_result(result)
     image_path = result.get("image")
     if not image_path:
         return result
@@ -188,20 +232,19 @@ def upload():
     if not uploaded_file:
         return jsonify({"ok": False, "message": "File belum dipilih."}), 400
 
+    temp_path = None
     try:
         df, report = load_data(uploaded_file)
 
         sid = _session_id()
-        DATASETS[sid] = df
-        REPORTS[sid] = report
-
         uploaded_file.seek(0)
         fd, temp_path = tempfile.mkstemp(suffix=Path(uploaded_file.filename).suffix)
         os.close(fd)
         uploaded_file.save(temp_path)
 
         SessionManager.update_dataset(sid, temp_path, uploaded_file.filename)
-        os.remove(temp_path)
+        DATASETS[sid] = df
+        REPORTS[sid] = report
 
         return jsonify({
             "ok": True,
@@ -210,11 +253,20 @@ def upload():
             "preview": df.head(5).astype(str).to_dict(orient="records"),
         })
 
-    except Exception as exc:
+    except ValueError as exc:
         return jsonify({
             "ok": False,
-            "message": f"Gagal memproses file: {str(exc)}"
+            "message": str(exc),
         }), 400
+    except Exception:
+        logger.exception("Dataset upload failed")
+        return jsonify({
+            "ok": False,
+            "message": "Gagal memproses file. Periksa format dan ukuran file.",
+        }), 400
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 @chat_bp.route("/use-sample", methods=["POST"])
@@ -307,9 +359,15 @@ def chat():
 
 @chat_bp.route("/output/<path:filename>")
 def output_file(filename):
-    return send_from_directory(OUTPUT_DIR, filename)
+    path = _owned_output_path(filename)
+    if not path:
+        return jsonify({"ok": False, "message": "Output tidak ditemukan"}), 404
+    return send_from_directory(OUTPUT_DIR, path.name)
 
 
 @chat_bp.route("/download/<path:filename>")
 def download_file(filename):
-    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
+    path = _owned_output_path(filename)
+    if not path:
+        return jsonify({"ok": False, "message": "Output tidak ditemukan"}), 404
+    return send_from_directory(OUTPUT_DIR, path.name, as_attachment=True)

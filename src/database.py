@@ -28,16 +28,17 @@ class ChatSession(db.Model):
                                cascade="all, delete-orphan",
                                order_by="ChatMessage.created_at")
 
-    def to_dict(self, include_history=False):
+    def to_dict(self, include_history=False, include_private=False):
         data = {
             "id": self.id,
             "title": self.title,
-            "user_id": self.user_id,
-            "dataset_path": self.dataset_path,
             "dataset_name": self.dataset_name,
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "updated_at": self.updated_at.isoformat() if self.updated_at else "",
         }
+        if include_private:
+            data["user_id"] = self.user_id
+            data["dataset_path"] = self.dataset_path
         if include_history:
             data["history"] = [m.to_dict() for m in self.messages]
         return data

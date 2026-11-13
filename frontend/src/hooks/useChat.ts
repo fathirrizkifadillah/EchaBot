@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
-import { sendMessage, ChatResponse } from "@/lib/api";
+import { sendMessage, ChatResponse, resolveApiUrl } from "@/lib/api";
 
 export interface Message {
   id: string;
@@ -9,6 +9,7 @@ export interface Message {
   imageUrl?: string;
   downloadUrl?: string;
   rows?: Record<string, string>[];
+  table?: Record<string, string | number>;
   loading?: boolean;
 }
 
@@ -50,9 +51,10 @@ export function useChat() {
               ? {
                   ...m,
                   content: res.message,
-                  imageUrl: res.image_url,
-                  downloadUrl: res.download_url,
+                  imageUrl: resolveApiUrl(res.image_url),
+                  downloadUrl: resolveApiUrl(res.download_url),
                   rows: res.rows,
+                  table: res.table,
                   loading: false,
                 }
               : m

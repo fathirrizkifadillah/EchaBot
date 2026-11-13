@@ -1,6 +1,8 @@
 from pathlib import Path
 from uuid import uuid4
 
+from werkzeug.utils import secure_filename
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -15,7 +17,9 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def _image_path(name):
-    return OUTPUT_DIR / f"{name}_{uuid4().hex[:8]}.png"
+    safe_name = secure_filename(str(name)) or "plot"
+    safe_name = safe_name.replace(".", "_")
+    return OUTPUT_DIR / f"{safe_name}_{uuid4().hex[:8]}.png"
 
 
 def _save_plot(path):
