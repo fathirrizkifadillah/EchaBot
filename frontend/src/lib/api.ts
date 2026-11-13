@@ -1,6 +1,104 @@
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
+export const REQUIRE_AUTH = process.env.NEXT_PUBLIC_REQUIRE_AUTH === "1";
 let csrfTokenPromise: Promise<string> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 let activeSessionId: string | null = null;
+let accessToken: string | null = null;
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface AuthResponse {
+  ok: boolean;
+  access_token: string;
+  user: AuthUser;
+}
+
+export function setAccessToken(token: string | null) {
+  accessToken = token;
+}
+
+export async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          accessToken = null;
+          return false;
+        }
+        const data = await res.json();
+        if (typeof data.access_token !== "string") {
+          accessToken = null;
+          return false;
+        }
+        accessToken = data.access_token;
+        return true;
+      })
+      .catch(() => {
+        accessToken = null;
+        return false;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+function isAuthPath(path: string) {
+  return path.startsWith("/api/auth/");
+}
+
+async function authRequest(path: string, body: Record<string, string>): Promise<AuthResponse> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(err.message || res.statusText, res.status);
+  }
+  const data = (await res.json()) as AuthResponse;
+  accessToken = data.access_token;
+  return data;
+}
+
+export function login(email: string, password: string): Promise<AuthResponse> {
+  return authRequest("/api/auth/login", { email, password });
+}
+
+export function register(name: string, email: string, password: string): Promise<AuthResponse> {
+  return authRequest("/api/auth/register", { name, email, password });
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } finally {
+    accessToken = null;
+  }
+}
 
 async function getCsrfToken(): Promise<string> {
   if (!csrfTokenPromise) {
@@ -37,17 +135,26 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(options?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
-  if (isStateChanging(method)) headers.set("X-CSRF-Token", await getCsrfToken());
+  if (accessToken && !isAuthPath(path)) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (isStateChanging(method) && !isAuthPath(path)) headers.set("X-CSRF-Token", await getCsrfToken());
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  let res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
     headers,
   });
+  if (res.status === 401 && !isAuthPath(path) && await refreshAccessToken()) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      credentials: "include",
+      headers,
+    });
+  }
   if (res.status === 403 && isStateChanging(method)) csrfTokenPromise = null;
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err.message || res.statusText);
+    throw new ApiError(err.message || res.statusText, res.status);
   }
   return res.json();
 }
@@ -67,18 +174,25 @@ export async function streamMessage(
   history: { role: string; content: string }[],
   onToken: (text: string) => void,
   signal?: AbortSignal,
+  onStatus?: (status: string) => void,
 ): Promise<ChatResponse> {
   const headers = new Headers({ "Content-Type": "application/json" });
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   headers.set("X-CSRF-Token", await getCsrfToken());
 
-  const res = await fetch(`${API_BASE}/chat/stream`, {
+  const requestStream = () => fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     credentials: "include",
     headers,
     signal,
     body: JSON.stringify({ message, history }),
   });
+  let res = await requestStream();
+  if (res.status === 401 && await refreshAccessToken()) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    res = await requestStream();
+  }
   if (!res.ok || !res.body) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message || res.statusText);
@@ -98,6 +212,7 @@ export async function streamMessage(
       const dataLine = event.match(/^data: (.+)$/m)?.[1];
       if (!dataLine) continue;
       const data = JSON.parse(dataLine);
+      if (eventName === "status" && onStatus) onStatus(data.text || "");
       if (eventName === "token") onToken(data.text || "");
       if (eventName === "done") finalResult = data as ChatResponse;
       if (eventName === "error") throw new Error(data.message || "Streaming gagal.");
@@ -186,14 +301,20 @@ export function activateDataset(
 export async function downloadExport(format: "pdf" | "xlsx"): Promise<void> {
   const headers = new Headers({ "X-CSRF-Token": await getCsrfToken() });
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
-  const response = await fetch(`${API_BASE}/export/${format}`, {
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const requestExport = () => fetch(`${API_BASE}/export/${format}`, {
     method: "POST",
     credentials: "include",
     headers,
   });
+  let response = await requestExport();
+  if (response.status === 401 && await refreshAccessToken()) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    response = await requestExport();
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Export gagal." }));
-    throw new Error(error.message || "Export gagal.");
+    throw new ApiError(error.message || "Export gagal.", response.status);
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

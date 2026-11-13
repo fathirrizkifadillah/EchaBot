@@ -21,6 +21,7 @@ from werkzeug.exceptions import NotFound
 import threading
 
 from api.identity import current_owner_id
+from api.limiter import limiter
 from src import tools
 from src.code_executor import execute_code
 from src.llm import get_intent, get_intent_stream, parse_intent, generate_chat_title
@@ -89,7 +90,25 @@ def _scope_image_result(result: dict):
 
 def _current_dataset():
     sid = _session_id()
-    return DATASETS.get(sid), REPORTS.get(sid)
+    dataframe = DATASETS.get(sid)
+    report = REPORTS.get(sid)
+    if dataframe is not None:
+        return dataframe, report
+
+    path = SessionManager.dataset_path(sid)
+    if not path or not path.exists():
+        return None, None
+
+    try:
+        source = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_excel(path)
+        dataframe, report = preprocess_data(source)
+    except Exception:
+        logger.exception("Failed to reload dataset for session %s", sid)
+        return None, None
+
+    DATASETS[sid] = dataframe
+    REPORTS[sid] = report
+    return dataframe, report
 
 
 def _update_title_async(app, sid, user_message):
@@ -238,6 +257,7 @@ def index():
 
 
 @chat_bp.route("/upload", methods=["POST"])
+@limiter.limit("20/minute")
 def upload():
     uploaded_file = request.files.get("file")
 
@@ -282,6 +302,7 @@ def upload():
 
 
 @chat_bp.route("/use-sample", methods=["POST"])
+@limiter.limit("20/minute")
 def use_sample():
     sample_path = BASE_DIR / "data" / "Walmart_Sales.csv"
 
@@ -315,6 +336,7 @@ def use_sample():
 
 
 @chat_bp.route("/chat", methods=["POST"])
+@limiter.limit("30/minute")
 def chat():
     from flask import current_app
 
@@ -374,6 +396,7 @@ def _sse_event(event: str, payload: dict) -> str:
 
 
 @chat_bp.route("/chat/stream", methods=["POST"])
+@limiter.limit("20/minute")
 def chat_stream():
     from flask import current_app
 
@@ -398,12 +421,37 @@ def chat_stream():
     @stream_with_context
     def generate():
         chunks = []
+        is_action_stream = None
+        status_emitted = False
+        prefix_buffer = []
+
         try:
             for chunk in get_intent_stream(user_message, df, history):
                 if not chunk:
                     continue
                 chunks.append(chunk)
-                yield _sse_event("token", {"text": chunk})
+
+                if is_action_stream is None:
+                    prefix_buffer.append(chunk)
+                    combined_prefix = "".join(prefix_buffer).lstrip()
+                    if combined_prefix.startswith("{"):
+                        # Possible JSON action payload! Buffer it, emit status instead of raw tokens
+                        is_action_stream = True
+                        if not status_emitted:
+                            yield _sse_event("status", {"text": "Sedang menganalisis dataset..."})
+                            status_emitted = True
+                    elif len(combined_prefix) > 0 and not combined_prefix.startswith("{"):
+                        # Plain text conversation! Flush buffered chunks
+                        is_action_stream = False
+                        for buffered_chunk in prefix_buffer:
+                            yield _sse_event("token", {"text": buffered_chunk})
+                        prefix_buffer.clear()
+                elif is_action_stream is False:
+                    # Continue streaming plain conversational text
+                    yield _sse_event("token", {"text": chunk})
+                elif is_action_stream is True:
+                    # Action stream: do not emit raw JSON tokens
+                    pass
 
             llm_text = "".join(chunks)
             action = parse_intent(llm_text) if llm_text else None
@@ -415,6 +463,9 @@ def chat_stream():
             elif action and df is not None:
                 result = _answer(action, df, report)
             else:
+                # If buffered as potential action but turned out to be conversational text
+                if is_action_stream is True and llm_text:
+                    yield _sse_event("token", {"text": llm_text})
                 result = {"message": llm_text or "Aku EchaBot. Upload dataset dulu, lalu tanya analisis yang kamu butuhkan."}
 
             SessionManager.append_message(sid, "bot", result.get("message", "Ini hasilnya:"))

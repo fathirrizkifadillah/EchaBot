@@ -1,7 +1,8 @@
 """Sandboxed pandas code execution.
 
-Runs LLM-generated Python code in a restricted subprocess with a timeout.
-Only pandas, numpy, and the dataset DataFrame are available in the sandbox.
+Runs LLM-generated Python code in a restricted subprocess with a timeout and strict allowlist.
+Only safe pandas, numpy, and DataFrame analytical operations are permitted.
+All file/network I/O, dunder attribute introspection, and code execution facilities are stripped.
 """
 
 import ast
@@ -26,6 +27,27 @@ _RUNNER_TEMPLATE = textwrap.dedent("""\
     import numpy as np
 
     df = pd.read_json(sys.stdin, orient="split")
+
+    # Strip dangerous I/O and execution methods from pandas and DataFrames at runtime
+    for _name in list(dir(pd)):
+        if _name.startswith("read_") or _name in ("eval", "read_pickle", "read_csv"):
+            try:
+                delattr(pd, _name)
+            except Exception:
+                pass
+
+    _dangerous_methods = (
+        "to_csv", "to_pickle", "to_sql", "to_excel", "to_parquet",
+        "to_feather", "to_hdf", "to_stata", "to_clipboard", "eval", "query",
+    )
+    for _cls in (pd.DataFrame, pd.Series):
+        for _m in _dangerous_methods:
+            if hasattr(_cls, _m):
+                try:
+                    delattr(_cls, _m)
+                except Exception:
+                    pass
+
     _capture = io.StringIO()
     _safe_builtins = {
         "abs": abs, "all": all, "any": any, "bool": bool,
@@ -70,24 +92,37 @@ _RUNNER_TEMPLATE = textwrap.dedent("""\
         json.dump({"ok": False, "message": f"Error: {type(exc).__name__}: {exc}"}, sys.stdout)
 """)
 
-# Deny list — these imports/calls should never appear in generated code
+# Deny list — forbidden module imports or dangerous keywords
 _DENY_PATTERNS = [
     "import os", "import sys", "import subprocess", "import shutil",
     "import socket", "import http", "import urllib", "import requests",
     "__import__", "eval(", "exec(", "compile(", "open(",
     "os.system", "os.popen", "os.remove", "os.unlink",
     "shutil.", "subprocess.", "socket.",
-    "globals(", "locals(",
+    "globals(", "locals(", "breakpoint(",
 ]
+
 _DENY_NAMES = {
     "__builtins__", "__import__", "eval", "exec", "compile", "open",
-    "globals", "locals", "vars", "getattr", "setattr", "delattr",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr", "hasattr",
+    "input", "breakpoint", "help",
 }
-_DENY_ATTRIBUTES = {"__class__", "__base__", "__subclasses__", "__globals__", "__code__"}
+
+_DANGEROUS_IO_ATTRS = {
+    "to_csv", "to_pickle", "to_sql", "to_excel", "to_parquet",
+    "to_feather", "to_hdf", "to_stata", "to_clipboard", "to_json",
+    "read_pickle", "read_csv", "read_sql", "read_excel", "read_parquet",
+    "read_feather", "read_hdf", "read_stata", "read_clipboard", "read_json",
+    "eval", "query",
+}
+_DENY_EXPLICIT_ATTRS = {
+    "__class__", "__base__", "__subclasses__", "__globals__", "__code__",
+    "__dict__", "__closure__", "__builtins__",
+}
 
 
 def validate_code(code: str) -> str | None:
-    """Return error message if code is unsafe, else None."""
+    """Validate python code using an AST allowlist and forbidden pattern filter."""
     code_lower = code.lower()
     for pattern in _DENY_PATTERNS:
         if pattern.lower() in code_lower:
@@ -99,18 +134,29 @@ def validate_code(code: str) -> str | None:
         return f"Kode ditolak: sintaks tidak valid ({exc.msg})."
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import | ast.ImportFrom):
+        # Disallow all imports
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [alias.name for alias in node.names]
             return f"Kode ditolak: import {', '.join(modules)} tidak diperbolehkan."
-        if isinstance(node, ast.Name) and node.id in _DENY_NAMES:
-            return f"Kode ditolak: nama `{node.id}` tidak diperbolehkan demi keamanan."
-        if isinstance(node, ast.Attribute) and node.attr in _DENY_ATTRIBUTES:
-            return f"Kode ditolak: atribut `{node.attr}` tidak diperbolehkan demi keamanan."
+
+        # Disallow dangerous names / builtins
+        if isinstance(node, ast.Name):
+            if node.id in _DENY_NAMES or node.id.startswith("__"):
+                return f"Kode ditolak: pemanggilan `{node.id}` tidak diperbolehkan demi keamanan."
+
+        # Disallow attribute traversal to dunders or file/network I/O
+        if isinstance(node, ast.Attribute):
+            attr = node.attr
+            if attr in _DENY_EXPLICIT_ATTRS or attr in _DANGEROUS_IO_ATTRS or attr.startswith("__"):
+                return f"Kode ditolak: atribut/metode `{attr}` tidak diperbolehkan demi keamanan."
+            if attr.startswith("read_"):
+                return f"Kode ditolak: metode I/O `{attr}` tidak diperbolehkan demi keamanan."
+
     return None
 
 
 def execute_code(code: str, df) -> dict:
-    """Execute pandas code against the given DataFrame in a subprocess."""
+    """Execute pandas code against the given DataFrame in a sandboxed subprocess."""
     import pandas as pd
 
     violation = validate_code(code)
@@ -152,3 +198,4 @@ def execute_code(code: str, df) -> dict:
         return result
     except json.JSONDecodeError:
         return {"ok": False, "message": f"Output tidak valid: {output[:500]}"}
+
