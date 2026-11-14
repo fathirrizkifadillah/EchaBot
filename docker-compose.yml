@@ -18,10 +18,10 @@ services:
     env_file:
       - .env
     environment:
-      FLASK_ENV: production
+      FLASK_ENV: ${FLASK_ENV:-development}
       DATABASE_URL: sqlite:////app/data/echabot.db
       RATELIMIT_STORAGE_URI: ${RATELIMIT_STORAGE_URI:-redis://redis:6379/0}
-      REQUIRE_AUTH: ${REQUIRE_AUTH:-1}
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-0}
     depends_on:
       redis:
         condition: service_healthy
@@ -45,9 +45,10 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
-        NEXT_PUBLIC_REQUIRE_AUTH: ${NEXT_PUBLIC_REQUIRE_AUTH:-1}
+        NEXT_PUBLIC_REQUIRE_AUTH: ${NEXT_PUBLIC_REQUIRE_AUTH:-0}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_REQUIRE_AUTH: ${NEXT_PUBLIC_REQUIRE_AUTH:-0}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
