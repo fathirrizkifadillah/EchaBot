@@ -1,9 +1,27 @@
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
 export const REQUIRE_AUTH = process.env.NEXT_PUBLIC_REQUIRE_AUTH === "1";
+const GUEST_STORAGE_KEY = "echabot_guest_id";
 let csrfTokenPromise: Promise<string> | null = null;
 let refreshPromise: Promise<boolean> | null = null;
 let activeSessionId: string | null = null;
 let accessToken: string | null = null;
+
+export function getGuestId(): string {
+  if (typeof window === "undefined") {
+    return "guest-ssr";
+  }
+  let id = localStorage.getItem(GUEST_STORAGE_KEY);
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!id || !uuidRegex.test(id)) {
+    id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-123456789abc";
+    try {
+      localStorage.setItem(GUEST_STORAGE_KEY, id);
+    } catch {
+      // Local storage unavailable or quota reached
+    }
+  }
+  return id;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -135,7 +153,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(options?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
-  if (accessToken && !isAuthPath(path)) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (accessToken && !isAuthPath(path)) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  } else if (!isAuthPath(path)) {
+    headers.set("X-Guest-Id", getGuestId());
+  }
   if (isStateChanging(method) && !isAuthPath(path)) headers.set("X-CSRF-Token", await getCsrfToken());
 
   let res = await fetch(`${API_BASE}${path}`, {
@@ -178,7 +200,11 @@ export async function streamMessage(
 ): Promise<ChatResponse> {
   const headers = new Headers({ "Content-Type": "application/json" });
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
-  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  } else {
+    headers.set("X-Guest-Id", getGuestId());
+  }
   headers.set("X-CSRF-Token", await getCsrfToken());
 
   const requestStream = () => fetch(`${API_BASE}/chat/stream`, {
@@ -301,7 +327,11 @@ export function activateDataset(
 export async function downloadExport(format: "pdf" | "xlsx"): Promise<void> {
   const headers = new Headers({ "X-CSRF-Token": await getCsrfToken() });
   if (activeSessionId) headers.set("X-Session-Id", activeSessionId);
-  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  } else {
+    headers.set("X-Guest-Id", getGuestId());
+  }
   const requestExport = () => fetch(`${API_BASE}/export/${format}`, {
     method: "POST",
     credentials: "include",
