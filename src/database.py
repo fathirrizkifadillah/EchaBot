@@ -12,11 +12,59 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.String(64), primary_key=True, default=lambda: uuid4().hex)
+    name = db.Column(db.String(256), nullable=False)
+    email = db.Column(db.String(256), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(256), nullable=True)
+    provider = db.Column(db.String(32), nullable=False, default="local")  # "local" | "google"
+    provider_id = db.Column(db.String(256), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    sessions = db.relationship(
+        "ChatSession",
+        backref="owner",
+        lazy="dynamic",
+    )
+    refresh_tokens = db.relationship(
+        "RefreshToken",
+        backref="user",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "provider": self.provider,
+        }
+
+
+class RefreshToken(db.Model):
+    __tablename__ = "refresh_tokens"
+
+    id = db.Column(db.String(64), primary_key=True, default=lambda: uuid4().hex)
+    user_id = db.Column(db.String(64), db.ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class ChatSession(db.Model):
     __tablename__ = "chat_sessions"
 
     id = db.Column(db.String(64), primary_key=True)
-    user_id = db.Column(db.String(128), index=True, nullable=True)
+    user_id = db.Column(
+        db.String(64),
+        db.ForeignKey("users.id"),
+        index=True,
+        nullable=True,
+    )
     title = db.Column(db.String(256), default="New Chat")
     dataset_path = db.Column(db.String(512), nullable=True)
     dataset_name = db.Column(db.String(256), nullable=True)

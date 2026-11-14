@@ -5,17 +5,39 @@ import ChatPanel from "@/components/ChatPanel";
 import { useChat } from "@/hooks/useChat";
 import { useDataset } from "@/hooks/useDataset";
 import { useSessions } from "@/hooks/useSessions";
-import { downloadExport, getSession } from "@/lib/api";
+import { downloadExport, getSession, refreshAccessToken, REQUIRE_AUTH, logout } from "@/lib/api";
+import AuthPanel from "@/components/AuthPanel";
 
 export default function Home() {
   const chat = useChat();
   const dataset = useDataset();
   const sessions = useSessions();
   const [notice, setNotice] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(!REQUIRE_AUTH);
+  const [authenticated, setAuthenticated] = useState(!REQUIRE_AUTH);
+
+  useEffect(() => {
+    if (!REQUIRE_AUTH) return;
+    refreshAccessToken().then((valid) => {
+      setAuthenticated(valid);
+      setAuthChecked(true);
+    });
+  }, []);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(null), 3000);
+  }, []);
+
+  const handleAuthenticated = useCallback(async () => {
+    const valid = await refreshAccessToken();
+    setAuthenticated(valid);
+    if (valid) await sessions.refresh();
+  }, [sessions]);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+    setAuthenticated(false);
   }, []);
 
   // Auto-restore active session after reload
@@ -125,6 +147,14 @@ export default function Home() {
     } else dataset.clear();
   }, [sessions, chat, dataset]);
 
+  if (!authChecked) {
+    return <main className="flex h-full items-center justify-center bg-black text-xs text-zinc-500">Menyiapkan workspace...</main>;
+  }
+
+  if (REQUIRE_AUTH && !authenticated) {
+    return <AuthPanel onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <div className="flex h-full w-full overflow-hidden">
       <Sidebar
@@ -140,6 +170,7 @@ export default function Home() {
         onNew={handleNew}
         onSelect={handleSelect}
         onDelete={sessions.remove}
+        onLogout={REQUIRE_AUTH ? handleLogout : undefined}
       />
       <ChatPanel
         messages={chat.messages}

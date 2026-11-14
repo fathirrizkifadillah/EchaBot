@@ -7,6 +7,7 @@ import {
   Download,
   FileSpreadsheet,
   History,
+  LogOut,
   MessageSquarePlus,
   Trash2,
   Upload,
@@ -26,6 +27,7 @@ interface SidebarProps {
   onNew: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onLogout?: () => void;
 }
 
 export default function Sidebar({
@@ -41,6 +43,7 @@ export default function Sidebar({
   onNew,
   onSelect,
   onDelete,
+  onLogout,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -136,7 +139,10 @@ export default function Sidebar({
           ))}
         </div>
       </div>
-      <div className="border-t border-white/10 px-5 py-3 text-[11px] text-zinc-700">AI Data Analyst · v2.0</div>
+      <div className="border-t border-white/10 px-4 py-3">
+        {onLogout && <button onClick={onLogout} className="mb-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-zinc-500 transition hover:bg-white/[.04] hover:text-zinc-200"><LogOut size={13} /> Keluar</button>}
+        <p className="px-1 text-[11px] text-zinc-700">AI Data Analyst · v2.0</p>
+      </div>
     </aside>
   );
 }

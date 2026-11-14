@@ -20,6 +20,7 @@ export function useSessions() {
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [restored, setRestored] = useState(false);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   // Sync module-level activeSessionId with state
   const updateActiveId = useCallback((id: string | null) => {
@@ -32,9 +33,14 @@ export function useSessions() {
   const refresh = useCallback(async () => {
     try {
       const res = await listSessions();
-      if (res.ok) setSessions(res.sessions);
-    } catch {
-      /* silent */
+      if (res.ok) {
+        setSessions(res.sessions);
+        setUnauthorized(false);
+      }
+    } catch (error) {
+      if (error instanceof Error && "status" in error && error.status === 401) {
+        setUnauthorized(true);
+      }
     }
   }, []);
 
@@ -56,16 +62,24 @@ export function useSessions() {
     listSessions()
       .then((res) => {
         if (cancelled) return;
-        if (res.ok) setSessions(res.sessions);
-        const savedId = sessionStorage.getItem(STORAGE_KEY);
-        if (savedId && res.sessions?.some((s) => s.id === savedId)) {
-          setActiveId(savedId);
-          setActiveSessionId(savedId);
-          loadDatasets(savedId);
+        if (res.ok) {
+          setSessions(res.sessions);
+          setUnauthorized(false);
+          const savedId = sessionStorage.getItem(STORAGE_KEY);
+          if (savedId && res.sessions?.some((s) => s.id === savedId)) {
+            setActiveId(savedId);
+            setActiveSessionId(savedId);
+            loadDatasets(savedId);
+          }
         }
         setRestored(true);
       })
-      .catch(() => setRestored(true));
+      .catch((error) => {
+        if (error instanceof Error && "status" in error && error.status === 401) {
+          setUnauthorized(true);
+        }
+        setRestored(true);
+      });
 
     return () => { cancelled = true; };
   }, [loadDatasets]);
@@ -141,6 +155,7 @@ export function useSessions() {
     datasets,
     loading,
     restored,
+    unauthorized,
     refresh,
     loadDatasets,
     switchTo,

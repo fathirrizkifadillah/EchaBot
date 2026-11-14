@@ -10,6 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from api.identity import current_owner_id
+from api.limiter import limiter
 from src.session_manager import SessionManager
 
 export_bp = Blueprint("export", __name__)
@@ -62,6 +63,7 @@ def _safe_filename(session_id, extension):
 
 
 @export_bp.post("/export/xlsx")
+@limiter.limit("10/minute")
 def export_xlsx():
     session_id, dataframe, report = _context()
     if not session_id:
@@ -87,6 +89,7 @@ def export_xlsx():
 
 
 @export_bp.post("/export/pdf")
+@limiter.limit("10/minute")
 def export_pdf():
     session_id, dataframe, report = _context()
     if not session_id:

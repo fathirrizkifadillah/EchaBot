@@ -1,0 +1,62 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - echabot-redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: sqlite:////app/data/echabot.db
+      RATELIMIT_STORAGE_URI: ${RATELIMIT_STORAGE_URI:-redis://redis:6379/0}
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-1}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-5000}:5000"
+    volumes:
+      - echabot-data:/app/data
+      - echabot-uploads:/app/uploads
+      - echabot-output:/app/output
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+        NEXT_PUBLIC_REQUIRE_AUTH: ${NEXT_PUBLIC_REQUIRE_AUTH:-1}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  echabot-data:
+  echabot-uploads:
+  echabot-output:
+  echabot-redis:

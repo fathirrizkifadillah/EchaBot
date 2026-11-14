@@ -1,11 +1,15 @@
 flask
 flask-cors
+flask-limiter
 flask-sqlalchemy
+google-auth
 groq
 gunicorn
 matplotlib
 openpyxl
 pandas
+PyJWT
 python-dotenv
 reportlab
+redis
 scikit-learn
