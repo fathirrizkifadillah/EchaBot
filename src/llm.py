@@ -49,6 +49,34 @@ Contoh:
 """
 
 
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_GROQ_FAST_MODEL = "llama-3.1-8b-instant"
+
+MODEL_ALIASES = {
+    "llama3-8b-8192": "llama-3.1-8b-instant",
+    "llama3-70b-8192": "llama-3.3-70b-versatile",
+    "gpt-oss": "llama-3.3-70b-versatile",
+    "gpt-oss-120b": "llama-3.3-70b-versatile",
+}
+
+
+def _resolve_model(env_var="GROQ_MODEL", default=DEFAULT_GROQ_MODEL):
+    raw = (os.getenv(env_var) or "").strip()
+    if not raw:
+        return default
+    return MODEL_ALIASES.get(raw, raw)
+
+
+def _fallback_title(user_input: str) -> str:
+    cleaned = (user_input or "").strip().replace("\n", " ")
+    cleaned = " ".join(cleaned.split())
+    if not cleaned:
+        return "Percakapan Baru"
+    if len(cleaned) > 35:
+        return cleaned[:35].rstrip() + "..."
+    return cleaned
+
+
 def clean_output(text):
     if not text:
         return ""
@@ -65,12 +93,7 @@ def get_intent(user_input, df_context=None, history=None):
     try:
         from groq import Groq
 
-        requested = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
-        model_alias = {
-            "gpt-oss": "openai/gpt-oss-120b",
-            "gpt-oss-120b": "openai/gpt-oss-120b",
-        }
-        model = model_alias.get(requested, requested)
+        model = _resolve_model("GROQ_MODEL", DEFAULT_GROQ_MODEL)
 
         columns_context = ""
         if df_context is not None:
