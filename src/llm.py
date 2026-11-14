@@ -129,12 +129,7 @@ def get_intent_stream(user_input, df_context=None, history=None):
     try:
         from groq import Groq
 
-        requested = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
-        model_alias = {
-            "gpt-oss": "openai/gpt-oss-120b",
-            "gpt-oss-120b": "openai/gpt-oss-120b",
-        }
-        model = model_alias.get(requested, requested)
+        model = _resolve_model("GROQ_MODEL", DEFAULT_GROQ_MODEL)
         columns_context = ""
         if df_context is not None:
             columns_context = f"Kolom dataset saat ini: {', '.join(map(str, df_context.columns))}"
@@ -171,25 +166,41 @@ def parse_intent(text):
     except Exception:
         return None
 
-def generate_chat_title(user_input):
+def generate_chat_title(user_input: str) -> str:
+    fallback = _fallback_title(user_input)
     api_key = (os.getenv("GROQ_API_KEY") or os.getenv("API_KEY") or "").strip()
     if not api_key:
-        return user_input[:30] + "..."
-    
+        return fallback
+
     try:
         from groq import Groq
-        model = (os.getenv("GROQ_MODEL") or "llama3-8b-8192").strip() # default to faster model if possible, or fallback
-        # just use whatever is in env
+
+        # Prefer GROQ_FAST_MODEL, fallback to GROQ_MODEL, then DEFAULT_GROQ_FAST_MODEL
+        model = _resolve_model("GROQ_FAST_MODEL", "")
+        if not model:
+            raw_model = (os.getenv("GROQ_MODEL") or "").strip()
+            model = MODEL_ALIASES.get(raw_model, raw_model) or DEFAULT_GROQ_FAST_MODEL
+
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Buat 1 judul percakapan singkat (maks 5 kata) berdasarkan pesan pengguna. Jangan gunakan tanda kutip, langsung berikan judulnya saja. Gunakan bahasa Indonesia. Contoh: Analisis Data Penjualan"},
-                {"role": "user", "content": user_input}
+                {
+                    "role": "system",
+                    "content": (
+                        "Buat 1 judul percakapan singkat (maks 5 kata) berdasarkan pesan pengguna. "
+                        "Jangan gunakan tanda kutip, jangan pakai awalan 'Judul:', langsung berikan judulnya saja. "
+                        "Gunakan bahasa Indonesia. Contoh: Analisis Data Penjualan"
+                    ),
+                },
+                {"role": "user", "content": user_input},
             ],
             temperature=0.3,
-            max_tokens=15,
+            max_tokens=20,
         )
-        return clean_output(response.choices[0].message.content)[:40]
+        candidate = clean_output(response.choices[0].message.content).strip().strip('"').strip("'")
+        if candidate.lower().startswith("judul:"):
+            candidate = candidate[6:].strip()
+        return candidate[:40] if candidate else fallback
     except Exception:
-        return user_input[:30] + "..."
+        return fallback

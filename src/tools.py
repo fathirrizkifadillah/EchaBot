@@ -200,6 +200,7 @@ def model_evaluation(df, target_col: str | None = None):
     try:
         from sklearn.compose import ColumnTransformer
         from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        from sklearn.impute import SimpleImputer
         from sklearn.linear_model import LogisticRegression, LinearRegression
         from sklearn.metrics import (
             accuracy_score, f1_score, precision_score, recall_score,
@@ -252,22 +253,113 @@ def model_evaluation(df, target_col: str | None = None):
         label_encoder = LabelEncoder()
         y = pd.Series(label_encoder.fit_transform(y.astype(str)), index=y.index)
 
-    # Build preprocessor
+    # Detect date/time columns to avoid temporal data leakage
+    date_candidates = []
+    for col in clean_df.columns:
+        if col == target:
+            continue
+        if pd.api.types.is_datetime64_any_dtype(clean_df[col]):
+            date_candidates.append(col)
+        elif any(k in str(col).lower() for k in ["date", "tanggal", "time", "timestamp", "waktu"]):
+            try:
+                parsed = pd.to_datetime(clean_df[col], errors="coerce")
+                if parsed.notna().mean() >= 0.7:
+                    date_candidates.append(col)
+            except Exception:
+                pass
+        elif clean_df[col].dtype == "object":
+            try:
+                sample = clean_df[col].dropna().head(20)
+                if len(sample) >= 5:
+                    parsed = pd.to_datetime(sample, errors="coerce")
+                    if parsed.notna().mean() >= 0.8:
+                        date_candidates.append(col)
+            except Exception:
+                pass
+
+    temporal_split = False
+    temporal_warning = None
+    split_info = {"type": "random"}
+
+    if date_candidates:
+        selected_date_col = date_candidates[0]
+        temporal_split = True
+        if len(date_candidates) > 1:
+            temporal_warning = (
+                f"Peringatan: Ditemukan {len(date_candidates)} kolom waktu ({', '.join(date_candidates)}). "
+                f"Kolom '{selected_date_col}' dipilih sebagai acuan split kronologis. "
+                f"Tentukan kolom acuan secara spesifik bila ingin urutan waktu berbeda."
+            )
+        else:
+            temporal_warning = (
+                f"Kolom waktu '{selected_date_col}' terdeteksi. Pemisahan data dilakukan secara kronologis "
+                f"untuk mencegah kebocoran temporal (temporal data leakage)."
+            )
+
+        parsed_dates = pd.to_datetime(clean_df[selected_date_col], errors="coerce")
+        clean_df = clean_df.assign(_temp_date=parsed_dates).sort_values("_temp_date").drop(columns=["_temp_date"])
+        clean_df = clean_df.reset_index(drop=True)
+
+        X = clean_df[feature_cols]
+        y = clean_df[target]
+        if is_classification and label_encoder is not None:
+            y = pd.Series(label_encoder.fit_transform(y.astype(str)), index=y.index)
+
+        split_idx = int(len(clean_df) * 0.8)
+        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+
+        train_dates = clean_df.iloc[:split_idx][selected_date_col]
+        test_dates = clean_df.iloc[split_idx:][selected_date_col]
+        split_info = {
+            "type": "chronological",
+            "date_col": selected_date_col,
+            "train_max_date": str(train_dates.max()),
+            "test_min_date": str(test_dates.min()),
+        }
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Convert any remaining datetime columns in features to numeric timestamps so transformers can process them
+    for c in feature_cols:
+        if pd.api.types.is_datetime64_any_dtype(clean_df[c]):
+            clean_df[c] = clean_df[c].astype("int64") // 10**9
+            if c not in numeric_cols:
+                numeric_cols.append(c)
+
+    # Re-extract X_train and X_test if column types converted
+    X_train = clean_df.iloc[X_train.index][feature_cols]
+    X_test = clean_df.iloc[X_test.index][feature_cols]
+
+    # Build preprocessor with SimpleImputer (median for numeric, most_frequent for categorical)
+    # Imputer is fitted ONLY on X_train inside Pipeline
     num_features = [c for c in feature_cols if c in numeric_cols]
     cat_features = [c for c in feature_cols if c in cat_cols]
 
     transformers = []
     if num_features:
-        transformers.append(("num", StandardScaler(), num_features))
+        transformers.append((
+            "num",
+            Pipeline([
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+            ]),
+            num_features,
+        ))
     if cat_features:
-        transformers.append(("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False, max_categories=20), cat_features))
+        transformers.append((
+            "cat",
+            Pipeline([
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False, max_categories=20)),
+            ]),
+            cat_features,
+        ))
 
     if not transformers:
         return {"message": "Tidak ada fitur yang bisa diproses (butuh kolom numerik atau kategorikal)."}
 
     preprocessor = ColumnTransformer(transformers, remainder="drop")
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     task_label = "Klasifikasi" if is_classification else "Regresi"
     results = []
@@ -345,7 +437,11 @@ def model_evaluation(df, target_col: str | None = None):
     response = {
         "message": f"Evaluasi model ({task_label}) dengan target kolom `{target}`. Data: {len(X_train)} train, {len(X_test)} test.",
         "rows": results,
+        "temporal_split": temporal_split,
+        "split_info": split_info,
     }
+    if temporal_warning:
+        response["warning"] = temporal_warning
     if image_path:
         response["image"] = image_path
 
