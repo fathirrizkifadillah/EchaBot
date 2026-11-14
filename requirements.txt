@@ -13,3 +13,4 @@ python-dotenv
 reportlab
 redis
 scikit-learn
+psycopg2-binary

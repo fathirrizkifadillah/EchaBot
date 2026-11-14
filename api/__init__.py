@@ -11,7 +11,12 @@ from sqlalchemy import inspect, text
 from api.limiter import limiter
 from werkzeug.exceptions import Forbidden, RequestEntityTooLarge, TooManyRequests
 
-from src.database import db
+from src.database import (
+    RefreshToken,
+    configure_db_engine,
+    db,
+    normalize_database_url,
+)
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
@@ -56,26 +61,11 @@ def _migrate_schema():
         logger.info("Migrated chat_sessions.active_dataset_id")
 
     if "refresh_tokens" not in inspector.get_table_names():
-        db.session.execute(
-            text(
-                "CREATE TABLE refresh_tokens ("
-                "id VARCHAR(64) PRIMARY KEY, "
-                "user_id VARCHAR(64) NOT NULL, "
-                "token_hash VARCHAR(128) NOT NULL UNIQUE, "
-                "expires_at DATETIME NOT NULL, "
-                "revoked_at DATETIME, "
-                "created_at DATETIME"
-                ")"
-            )
-        )
-        db.session.execute(
-            text("CREATE INDEX ix_refresh_tokens_user_id ON refresh_tokens (user_id)")
-        )
-        db.session.execute(
-            text("CREATE INDEX ix_refresh_tokens_token_hash ON refresh_tokens (token_hash)")
-        )
-        db.session.commit()
-        logger.info("Created refresh_tokens table")
+        try:
+            RefreshToken.__table__.create(db.engine)
+            logger.info("Created refresh_tokens table")
+        except Exception as e:
+            logger.warning("Could not auto-create refresh_tokens table: %s", e)
 
     legacy_owner = os.getenv("LEGACY_SESSION_OWNER_ID", "").strip()
     if legacy_owner:
@@ -110,9 +100,9 @@ def create_app():
         raise RuntimeError("SECRET_KEY must be configured with at least 32 characters in production")
 
     app.secret_key = configured_secret or os.urandom(32).hex()
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-        "DATABASE_URL", f"sqlite:///{BASE_DIR / 'echabot.db'}"
-    )
+    raw_db_url = os.getenv("DATABASE_URL")
+    app.config["SQLALCHEMY_DATABASE_URI"] = normalize_database_url(raw_db_url)
+    configure_db_engine(app)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["ENVIRONMENT"] = environment
     app.config["REQUIRE_AUTH"] = os.getenv(

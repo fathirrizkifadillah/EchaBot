@@ -48,7 +48,13 @@ def _dataset_for(session_id):
 
 def _report_for(session_id):
     report = EXPORT_REPORTS.get(session_id)
-    return report if isinstance(report, dict) else {}
+    if isinstance(report, dict) and report:
+        return report
+    loaded = SessionManager.load_dataset_report(session_id)
+    if isinstance(loaded, dict) and loaded:
+        EXPORT_REPORTS[session_id] = loaded
+        return loaded
+    return {}
 
 
 def _context():

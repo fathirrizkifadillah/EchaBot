@@ -92,19 +92,30 @@ def _current_dataset():
     sid = _session_id()
     dataframe = DATASETS.get(sid)
     report = REPORTS.get(sid)
-    if dataframe is not None:
+    if dataframe is not None and report is not None:
         return dataframe, report
 
     path = SessionManager.dataset_path(sid)
     if not path or not path.exists():
         return None, None
 
-    try:
-        source = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_excel(path)
-        dataframe, report = preprocess_data(source)
-    except Exception:
-        logger.exception("Failed to reload dataset for session %s", sid)
-        return None, None
+    if dataframe is None:
+        try:
+            source = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_excel(path)
+            dataframe, processed_report = preprocess_data(source)
+            if report is None:
+                report = processed_report
+        except Exception:
+            logger.exception("Failed to reload dataset for session %s", sid)
+            return None, None
+
+    if report is None:
+        persisted_report = SessionManager.load_dataset_report(sid)
+        if persisted_report:
+            report = persisted_report
+        else:
+            _, report = preprocess_data(dataframe)
+            SessionManager.save_dataset_report(sid, report)
 
     DATASETS[sid] = dataframe
     REPORTS[sid] = report
@@ -275,6 +286,7 @@ def upload():
         uploaded_file.save(temp_path)
 
         SessionManager.update_dataset(sid, temp_path, uploaded_file.filename)
+        SessionManager.save_dataset_report(sid, report)
         DATASETS[sid] = df
         REPORTS[sid] = report
 
@@ -320,6 +332,7 @@ def use_sample():
         REPORTS[sid] = report
 
         SessionManager.update_dataset(sid, str(sample_path), "Walmart_Sales.csv")
+        SessionManager.save_dataset_report(sid, report)
 
         return jsonify({
             "ok": True,

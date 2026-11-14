@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shutil
@@ -70,6 +71,33 @@ class SessionManager:
         return _managed_file(session.dataset_path, UPLOADS_DIR) if session else None
 
     @staticmethod
+    def report_path(session_id: str) -> Path:
+        return UPLOADS_DIR / f"{session_id}_report.json"
+
+    @staticmethod
+    def save_dataset_report(session_id: str, report: dict):
+        if not session_id or not isinstance(report, dict):
+            return
+        try:
+            target = SessionManager.report_path(session_id)
+            with open(target, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False)
+        except Exception as exc:
+            logger.warning("Failed to persist dataset report for session %s: %s", session_id, exc)
+
+    @staticmethod
+    def load_dataset_report(session_id: str) -> dict | None:
+        target = SessionManager.report_path(session_id)
+        if not target.is_file():
+            return None
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as exc:
+            logger.warning("Failed to load dataset report for session %s: %s", session_id, exc)
+            return None
+
+    @staticmethod
     def list_sessions(user_id=None) -> list:
         query = ChatSession.query
         if user_id:
@@ -105,6 +133,7 @@ class SessionManager:
         db.session.commit()
         for dataset_path in dataset_paths:
             dataset_path.unlink(missing_ok=True)
+        SessionManager.report_path(session_id).unlink(missing_ok=True)
         for output_path in output_paths:
             if output_path.is_file():
                 output_path.unlink(missing_ok=True)

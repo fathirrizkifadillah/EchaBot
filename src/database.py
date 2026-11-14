@@ -1,15 +1,76 @@
+import os
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import uuid4
 
 from flask_sqlalchemy import SQLAlchemy
-
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 db = SQLAlchemy()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR") or (BASE_DIR / "uploads")).resolve()
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def normalize_database_url(url: str | None) -> str:
+    """Normalize DATABASE_URL for SQLAlchemy and cloud PostgreSQL compatibility.
+    - Replaces legacy 'postgres://' with 'postgresql://'
+    - Ensures sslmode=require for remote cloud PostgreSQL providers (Neon, Supabase, Render) if not set
+    - Defaults to local SQLite if url is empty
+    """
+    if not url or not url.strip():
+        return f"sqlite:///{BASE_DIR / 'echabot.db'}"
+
+    url = url.strip()
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+
+    if url.startswith("postgresql://"):
+        parsed = urlparse(url)
+        # Check if remote host (not localhost or Docker service name 'db') and sslmode is not present
+        is_remote = parsed.hostname not in ("localhost", "127.0.0.1", "db", None)
+        query_params = dict(parse_qsl(parsed.query))
+        if is_remote and "sslmode" not in query_params:
+            query_params["sslmode"] = "require"
+            new_query = urlencode(query_params)
+            url = urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                parsed.fragment,
+            ))
+
+    return url
+
+
+def configure_db_engine(app):
+    """Configure database engine options for SQLite WAL mode or PostgreSQL connection pooling."""
+    db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+
+    if db_uri.startswith("sqlite"):
+        @event.listens_for(Engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            if hasattr(dbapi_connection, "cursor"):
+                cursor = dbapi_connection.cursor()
+                try:
+                    cursor.execute("PRAGMA journal_mode=WAL;")
+                    cursor.execute("PRAGMA busy_timeout=5000;")
+                finally:
+                    cursor.close()
+
+        app.config.setdefault("SQLALCHEMY_ENGINE_OPTIONS", {})
+    elif db_uri.startswith("postgresql"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "pool_pre_ping": True,
+            "pool_recycle": 300,
+            "pool_size": int(os.getenv("DB_POOL_SIZE", "10")),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        }
 
 
 class User(db.Model):
