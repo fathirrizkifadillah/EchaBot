@@ -11,7 +11,6 @@ from flask import (
     Blueprint,
     Response,
     jsonify,
-    render_template,
     request,
     send_from_directory,
     session,
@@ -264,11 +263,16 @@ def _try_parse_custom_plot(user_message: str, df):
 # =========================
 @chat_bp.route("/")
 def index():
-    return render_template("index.html")
+    return jsonify({
+        "ok": True,
+        "service": "echabot-api",
+        "version": "2.0",
+        "status": "running",
+    })
 
 
 @chat_bp.route("/upload", methods=["POST"])
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def upload():
     uploaded_file = request.files.get("file")
 
@@ -314,7 +318,7 @@ def upload():
 
 
 @chat_bp.route("/use-sample", methods=["POST"])
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def use_sample():
     sample_path = BASE_DIR / "data" / "Walmart_Sales.csv"
 

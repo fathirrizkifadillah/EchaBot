@@ -13,8 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api ./api
 COPY src ./src
-COPY templates ./templates
-COPY static ./static
 COPY data ./data
 COPY app.py ./.env.example ./
 

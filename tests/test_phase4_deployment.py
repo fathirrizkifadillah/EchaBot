@@ -51,13 +51,16 @@ class TestPhase4Deployment:
 
         assert app.config["SESSION_COOKIE_SECURE"] is True
 
-    def test_production_rejects_memory_rate_limit_storage(self, monkeypatch):
+    def test_production_allows_memory_rate_limit_storage_with_warning(self, monkeypatch, caplog):
         monkeypatch.setenv("FLASK_ENV", "production")
         monkeypatch.setenv("SECRET_KEY", "phase4-production-secret-with-32-bytes")
         monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
 
-        with pytest.raises(RuntimeError, match="RATELIMIT_STORAGE_URI"):
-            create_app()
+        with caplog.at_level("WARNING"):
+            app = create_app()
+            assert app is not None
+            warnings = [r.message for r in caplog.records if "RATELIMIT_STORAGE_URI" in r.message]
+            assert len(warnings) > 0
 
     def test_app_entrypoint_does_not_enable_debug_by_default(self):
         from app import app

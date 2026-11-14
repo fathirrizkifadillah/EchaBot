@@ -92,8 +92,7 @@ def _migrate_schema():
 
 
 def create_app():
-    app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
-                static_folder=str(BASE_DIR / "static"))
+    app = Flask(__name__)
     environment = os.getenv("FLASK_ENV", "development").strip().lower()
     configured_secret = os.getenv("SECRET_KEY", "").strip()
     if environment == "production" and len(configured_secret) < 32:
@@ -205,11 +204,14 @@ def create_app():
         }), 429
 
     # ── Rate limiter ──
-    app.config["RATELIMIT_DEFAULT"] = os.getenv("RATE_LIMIT_DEFAULT", "120/minute")
+    app.config["RATELIMIT_DEFAULT"] = os.getenv("RATE_LIMIT_DEFAULT", "60/minute")
     app.config["RATELIMIT_STORAGE_URI"] = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
     if environment == "production" and app.config["RATELIMIT_STORAGE_URI"].startswith("memory://"):
-        raise RuntimeError(
-            "RATELIMIT_STORAGE_URI must use shared storage in production"
+        logger.warning(
+            "RATELIMIT_STORAGE_URI is set to memory:// in production. "
+            "Rate limits are stored in-process per worker. "
+            "Effective cluster limit = configured limit * number of workers. "
+            "For strict global rate limiting, configure a shared Redis URI."
         )
     limiter.init_app(app)
 
