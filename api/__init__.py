@@ -35,37 +35,48 @@ def _migrate_schema():
 
     columns = {column["name"] for column in inspector.get_columns("chat_sessions")}
     if "user_id" not in columns:
-        db.session.execute(
-            text("ALTER TABLE chat_sessions ADD COLUMN user_id VARCHAR(128)")
-        )
-        db.session.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_chat_sessions_user_id "
-                "ON chat_sessions (user_id)"
+        try:
+            db.session.execute(
+                text("ALTER TABLE chat_sessions ADD COLUMN user_id VARCHAR(128)")
             )
-        )
-        db.session.commit()
-        logger.info("Migrated chat_sessions.user_id")
+            db.session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chat_sessions_user_id "
+                    "ON chat_sessions (user_id)"
+                )
+            )
+            db.session.commit()
+            logger.info("Migrated chat_sessions.user_id")
+        except Exception as e:
+            db.session.rollback()
+            if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
+                raise
 
     if "active_dataset_id" not in columns:
-        db.session.execute(
-            text("ALTER TABLE chat_sessions ADD COLUMN active_dataset_id VARCHAR(64)")
-        )
-        db.session.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_chat_sessions_active_dataset_id "
-                "ON chat_sessions (active_dataset_id)"
+        try:
+            db.session.execute(
+                text("ALTER TABLE chat_sessions ADD COLUMN active_dataset_id VARCHAR(64)")
             )
-        )
-        db.session.commit()
-        logger.info("Migrated chat_sessions.active_dataset_id")
+            db.session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chat_sessions_active_dataset_id "
+                    "ON chat_sessions (active_dataset_id)"
+                )
+            )
+            db.session.commit()
+            logger.info("Migrated chat_sessions.active_dataset_id")
+        except Exception as e:
+            db.session.rollback()
+            if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
+                raise
 
     if "refresh_tokens" not in inspector.get_table_names():
         try:
             RefreshToken.__table__.create(db.engine)
             logger.info("Created refresh_tokens table")
         except Exception as e:
-            logger.warning("Could not auto-create refresh_tokens table: %s", e)
+            if "already exists" not in str(e).lower():
+                logger.warning("Could not auto-create refresh_tokens table: %s", e)
 
     legacy_owner = os.getenv("LEGACY_SESSION_OWNER_ID", "").strip()
     if legacy_owner:
@@ -229,7 +240,12 @@ def create_app():
 
     db.init_app(app)
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                raise
+            logger.info("Tables already exist (concurrent worker handled): %s", e)
         _migrate_schema()
 
     from api.auth import auth_bp, decode_access_token
