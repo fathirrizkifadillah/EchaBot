@@ -55,8 +55,9 @@ DEFAULT_GROQ_FAST_MODEL = "llama-3.1-8b-instant"
 MODEL_ALIASES = {
     "llama3-8b-8192": "llama-3.1-8b-instant",
     "llama3-70b-8192": "llama-3.3-70b-versatile",
-    "gpt-oss": "llama-3.3-70b-versatile",
-    "gpt-oss-120b": "llama-3.3-70b-versatile",
+    "gpt-oss": "openai/gpt-oss-120b",
+    "gpt-oss-120b": "openai/gpt-oss-120b",
+    "qwen": "qwen/qwen3.8-27b",
 }
 
 
@@ -65,6 +66,18 @@ def _resolve_model(env_var="GROQ_MODEL", default=DEFAULT_GROQ_MODEL):
     if not raw:
         return default
     return MODEL_ALIASES.get(raw, raw)
+
+
+def _get_model_candidates(env_var="GROQ_MODEL", default=DEFAULT_GROQ_MODEL):
+    primary = _resolve_model(env_var, default)
+    candidates = [primary, "qwen/qwen3.8-27b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    seen = set()
+    result = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            result.append(c)
+    return result
 
 
 def _fallback_title(user_input: str) -> str:
@@ -109,12 +122,23 @@ def get_intent(user_input, df_context=None, history=None):
         messages.append({"role": "user", "content": user_input})
 
         client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.2,
-        )
-        return clean_output(response.choices[0].message.content)
+        last_exc = None
+        for model in _get_model_candidates("GROQ_MODEL", DEFAULT_GROQ_MODEL):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.2,
+                )
+                return clean_output(response.choices[0].message.content)
+            except Exception as exc:
+                last_exc = exc
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ["not exist", "not_found", "decommissioned", "access"]):
+                    logger.warning("Model %s unavailable, falling back...", model)
+                    continue
+                break
+        return f"LLM error: {type(last_exc).__name__}: {str(last_exc)}"
     except Exception as exc:
         return f"LLM error: {type(exc).__name__}: {str(exc)}"
 
@@ -141,16 +165,32 @@ def get_intent_stream(user_input, df_context=None, history=None):
         messages.append({"role": "user", "content": user_input})
 
         client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.2,
-            stream=True,
-        )
-        for chunk in response:
-            delta = getattr(chunk.choices[0].delta, "content", None)
-            if delta:
-                yield delta
+        last_exc = None
+        for model in _get_model_candidates("GROQ_MODEL", DEFAULT_GROQ_MODEL):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.2,
+                    stream=True,
+                )
+                yielded_any = False
+                for chunk in response:
+                    delta = getattr(chunk.choices[0].delta, "content", None)
+                    if delta:
+                        yielded_any = True
+                        yield delta
+                if yielded_any:
+                    return
+            except Exception as exc:
+                last_exc = exc
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ["not exist", "not_found", "decommissioned", "access"]):
+                    logger.warning("Stream model %s unavailable, falling back...", model)
+                    continue
+                break
+        if last_exc:
+            yield f"LLM error: {type(last_exc).__name__}: {str(last_exc)}"
     except Exception as exc:
         yield f"LLM error: {type(exc).__name__}: {str(exc)}"
 
@@ -175,32 +215,35 @@ def generate_chat_title(user_input: str) -> str:
     try:
         from groq import Groq
 
-        # Prefer GROQ_FAST_MODEL, fallback to GROQ_MODEL, then DEFAULT_GROQ_FAST_MODEL
-        model = _resolve_model("GROQ_FAST_MODEL", "")
-        if not model:
-            raw_model = (os.getenv("GROQ_MODEL") or "").strip()
-            model = MODEL_ALIASES.get(raw_model, raw_model) or DEFAULT_GROQ_FAST_MODEL
-
         client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Buat 1 judul percakapan singkat (maks 5 kata) berdasarkan pesan pengguna. "
-                        "Jangan gunakan tanda kutip, jangan pakai awalan 'Judul:', langsung berikan judulnya saja. "
-                        "Gunakan bahasa Indonesia. Contoh: Analisis Data Penjualan"
-                    ),
-                },
-                {"role": "user", "content": user_input},
-            ],
-            temperature=0.3,
-            max_tokens=20,
-        )
-        candidate = clean_output(response.choices[0].message.content).strip().strip('"').strip("'")
-        if candidate.lower().startswith("judul:"):
-            candidate = candidate[6:].strip()
-        return candidate[:40] if candidate else fallback
+        for model in _get_model_candidates("GROQ_FAST_MODEL", DEFAULT_GROQ_FAST_MODEL):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Buat 1 judul percakapan singkat (maks 5 kata) berdasarkan pesan pengguna. "
+                                "Jangan gunakan tanda kutip, jangan pakai awalan 'Judul:', langsung berikan judulnya saja. "
+                                "Gunakan bahasa Indonesia. Contoh: Analisis Data Penjualan"
+                            ),
+                        },
+                        {"role": "user", "content": user_input},
+                    ],
+                    temperature=0.3,
+                    max_tokens=20,
+                )
+                candidate = clean_output(response.choices[0].message.content).strip().strip('"').strip("'")
+                if candidate.lower().startswith("judul:"):
+                    candidate = candidate[6:].strip()
+                if candidate:
+                    return candidate[:40]
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ["not exist", "not_found", "decommissioned", "access"]):
+                    continue
+                break
+        return fallback
     except Exception:
         return fallback
