@@ -180,6 +180,7 @@ def _answer(action, df, report):
         ),
         "histogram_column": lambda: tools.histogram_column(df, params.get("column")),
         "boxplot_column": lambda: tools.boxplot_column(df, params.get("column")),
+        "data_quality": lambda: tools.data_quality_audit(df),
     }
 
     if action_name not in actions:

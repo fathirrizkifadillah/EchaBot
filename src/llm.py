@@ -37,6 +37,7 @@ Action yang tersedia:
 - columns
 - preview
 - describe
+- data_quality
 
 Untuk code_execution, hanya gunakan df, pd, dan np yang sudah tersedia. Jangan import modul,
 akses filesystem/network, atau memakai builtins introspeksi. Contoh:

@@ -13,6 +13,9 @@ def route_intent(user_input: str):
     if any(keyword in text for keyword in ["jalankan kode", "eksekusi kode", "buat kode", "pakai python", "hitung dengan kode"]):
         return "code_execution"
 
+    if any(k in text for k in ["kualitas", "quality", "audit data", "kesehatan data", "outlier", "hygiene"]):
+        return "data_quality"
+
     # detect preview with limit
     if any(k in text for k in ["preview", "lihat data", "contoh data", "head", "baris", "data"]):
         limit = _parse_limit(text)

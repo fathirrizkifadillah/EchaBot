@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
@@ -67,6 +68,113 @@ def describe_dataset(df: pd.DataFrame):
     rows = desc.head(max_rows).astype(str).to_dict(orient="records")
     msg = "Ini ringkasan `describe()` (dibatasi 25 kolom pertama)." if len(desc) > max_rows else "Ini ringkasan `describe()` dataset."
     return {"message": msg, "rows": rows}
+
+
+def data_quality_audit(df: pd.DataFrame) -> dict:
+    """Perform a comprehensive data quality audit across multiple quality dimensions.
+    
+    Evaluates:
+    - Completeness: missing cells and null percentages per column
+    - Uniqueness: duplicate rows and cardinality ratios
+    - Anomaly detection: statistical outliers via Interquartile Range (IQR)
+    - Distribution hygiene: skewness diagnosis (symmetric vs skewed)
+    - Overall Data Health Score (0-100)
+    """
+    if df is None or df.empty:
+        return {"message": "Dataset kosong atau belum dimuat."}
+
+    total_rows = len(df)
+    total_cols = len(df.columns)
+    total_cells = total_rows * total_cols
+    total_missing = int(df.isna().sum().sum())
+    completeness = ((total_cells - total_missing) / total_cells * 100.0) if total_cells > 0 else 100.0
+
+    duplicate_rows = int(df.duplicated().sum())
+    duplicate_pct = (duplicate_rows / total_rows * 100.0) if total_rows > 0 else 0.0
+
+    column_rows = []
+    cols_with_null = 0
+    cols_with_outlier = 0
+    num_cols_count = 0
+
+    for col in df.columns:
+        s = df[col]
+        null_count = int(s.isna().sum())
+        null_pct = (null_count / total_rows * 100.0) if total_rows > 0 else 0.0
+        if null_count > 0:
+            cols_with_null += 1
+
+        unique_count = int(s.nunique(dropna=True))
+        dtype_str = str(s.dtype)
+        is_numeric = pd.api.types.is_numeric_dtype(s)
+
+        if is_numeric:
+            num_cols_count += 1
+            valid = s.dropna()
+            outlier_count = 0
+            if len(valid) >= 4:
+                q25 = float(valid.quantile(0.25))
+                q75 = float(valid.quantile(0.75))
+                iqr = q75 - q25
+                if iqr > 0:
+                    lower = q25 - 1.5 * iqr
+                    upper = q75 + 1.5 * iqr
+                    outliers = valid[(valid < lower) | (valid > upper)]
+                    outlier_count = int(len(outliers))
+
+            if outlier_count > 0:
+                cols_with_outlier += 1
+
+            skew_display = "-"
+            if len(valid) >= 3:
+                skew_val = float(valid.skew())
+                if not np.isnan(skew_val):
+                    if abs(skew_val) < 0.5:
+                        skew_label = "Simetris"
+                    elif skew_val >= 0.5:
+                        skew_label = "Miring Kanan"
+                    else:
+                        skew_label = "Miring Kiri"
+                    skew_display = f"{skew_val:.2f} ({skew_label})"
+
+            column_rows.append({
+                "column": str(col),
+                "tipe": dtype_str,
+                "missing": f"{null_count} ({null_pct:.1f}%)",
+                "unik": unique_count,
+                "outlier_count_iqr": outlier_count,
+                "skewness": skew_display,
+            })
+        else:
+            column_rows.append({
+                "column": str(col),
+                "tipe": dtype_str,
+                "missing": f"{null_count} ({null_pct:.1f}%)",
+                "unik": unique_count,
+                "outlier_count_iqr": 0,
+                "skewness": "-",
+            })
+
+    # Calculate overall health score (0 - 100)
+    penalty_null = min(40, (100.0 - completeness) * 1.5)
+    penalty_dup = min(25, duplicate_pct * 2.5)
+    penalty_outliers = min(20, (cols_with_outlier / max(1, num_cols_count)) * 20.0) if num_cols_count > 0 else 0
+    health_score = max(0, int(round(100.0 - penalty_null - penalty_dup - penalty_outliers)))
+
+    table = {
+        "Skor Kesehatan Data (Health Score)": f"{health_score}/100",
+        "Kelengkapan Data (Completeness)": f"{completeness:.1f}%",
+        "Baris Duplikat": f"{duplicate_rows:,} ({duplicate_pct:.1f}%)",
+        "Total Nilai Kosong (Missing)": f"{total_missing:,} sel",
+        "Kolom dengan Nilai Kosong": f"{cols_with_null} dari {total_cols} kolom",
+        "Kolom dengan Outlier (IQR)": f"{cols_with_outlier} dari {num_cols_count} numerik",
+    }
+
+    return {
+        "message": f"Hasil audit kualitas data ({total_rows:,} baris, {total_cols} kolom). Skor kesehatan: {health_score}/100.",
+        "table": table,
+        "rows": column_rows,
+    }
 
 def plot_custom(df: pd.DataFrame, kind: str, x: str | None = None, y: str | None = None, agg: str = "sum"):
     kind = (kind or "").lower().strip()
