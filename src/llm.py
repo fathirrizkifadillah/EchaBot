@@ -1,8 +1,13 @@
 import json
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from src.schemas import extract_json_candidate, validate_action_payload
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -196,15 +201,15 @@ def get_intent_stream(user_input, df_context=None, history=None):
 
 
 def parse_intent(text):
-    try:
-        data = json.loads(clean_output(text))
-        action = data.get("action")
-        if not action:
-            return None
-        params = data.get("params")
-        return {"action": action, "params": params} if params is not None else action
-    except Exception:
+    """Parse and validate LLM output against the Pydantic Action Schema.
+    
+    Guarantees that downstream router/execution only receives verified action types
+    and properly typed parameters, rejecting hallucinations and malformed payloads.
+    """
+    candidate = extract_json_candidate(text)
+    if candidate is None:
         return None
+    return validate_action_payload(candidate)
 
 def generate_chat_title(user_input: str) -> str:
     fallback = _fallback_title(user_input)
