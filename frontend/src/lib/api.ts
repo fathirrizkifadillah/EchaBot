@@ -181,6 +181,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface ChartConfig {
+  type: "line" | "bar" | "scatter";
+  xKey: string;
+  yKey: string;
+  title?: string;
+  data: Record<string, string | number>[];
+}
+
 export interface ChatResponse {
   message: string;
   image_url?: string;
@@ -189,6 +197,7 @@ export interface ChatResponse {
   table?: Record<string, string | number>;
   report?: Record<string, unknown>;
   preview?: Record<string, string>[];
+  chart?: ChartConfig;
 }
 
 export async function streamMessage(

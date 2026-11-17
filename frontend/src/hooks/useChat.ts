@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
-import { streamMessage, ChatResponse, resolveApiUrl } from "@/lib/api";
+import { streamMessage, ChatResponse, ChartConfig, resolveApiUrl } from "@/lib/api";
 
 export interface Message {
   id: string;
@@ -10,6 +10,7 @@ export interface Message {
   downloadUrl?: string;
   rows?: Record<string, string>[];
   table?: Record<string, string | number>;
+  chart?: ChartConfig;
   loading?: boolean;
 }
 
@@ -68,6 +69,7 @@ export function useChat() {
                   downloadUrl: resolveApiUrl(res.download_url),
                   rows: res.rows,
                   table: res.table,
+                  chart: res.chart,
                   loading: false,
                 }
               : m

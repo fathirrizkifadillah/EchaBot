@@ -209,7 +209,28 @@ def plot_custom(df: pd.DataFrame, kind: str, x: str | None = None, y: str | None
             ax.tick_params(axis="x", rotation=45)
         ax.ticklabel_format(style="plain", axis="y")
 
-        return {"message": f"Ini plot {kind} untuk `{y}` terhadap `{x}` (agg: {agg}).", "image": _save_plot(path)}
+        chart_records = []
+        for k, v in list(result.items())[:60]:
+            try:
+                num_v = float(v)
+                if pd.notna(num_v):
+                    chart_records.append({"name": str(k), "value": round(num_v, 2)})
+            except (ValueError, TypeError):
+                continue
+
+        chart_spec = {
+            "type": kind,
+            "xKey": "name",
+            "yKey": "value",
+            "title": f"{_pretty_label(y)} per {_pretty_label(x)} ({agg})",
+            "data": chart_records,
+        }
+
+        return {
+            "message": f"Ini plot {kind} untuk `{y}` terhadap `{x}` (agg: {agg}).",
+            "image": _save_plot(path),
+            "chart": chart_spec,
+        }
 
     if kind == "scatter":
         if not x or not y:
@@ -225,7 +246,33 @@ def plot_custom(df: pd.DataFrame, kind: str, x: str | None = None, y: str | None
         plt.ylabel(_pretty_label(y))
         plt.ticklabel_format(style="plain", axis="x")
         plt.ticklabel_format(style="plain", axis="y")
-        return {"message": f"Ini scatter plot `{y}` vs `{x}`.", "image": _save_plot(path)}
+
+        sample_df = df[[x, y]].dropna()
+        if len(sample_df) > 100:
+            sample_df = sample_df.sample(100, random_state=42)
+        scatter_records = []
+        for _, r in sample_df.iterrows():
+            try:
+                scatter_records.append({
+                    "x": round(float(r[x]), 2),
+                    "y": round(float(r[y]), 2),
+                })
+            except (ValueError, TypeError):
+                continue
+
+        chart_spec = {
+            "type": "scatter",
+            "xKey": "x",
+            "yKey": "y",
+            "title": f"Scatter: {_pretty_label(y)} vs {_pretty_label(x)}",
+            "data": scatter_records,
+        }
+
+        return {
+            "message": f"Ini scatter plot `{y}` vs `{x}`.",
+            "image": _save_plot(path),
+            "chart": chart_spec,
+        }
 
 
 def histogram_column(df: pd.DataFrame, column: str):
@@ -237,13 +284,32 @@ def histogram_column(df: pd.DataFrame, column: str):
         return {"message": f"Kolom `{column}` bukan numerik, jadi tidak cocok untuk histogram."}
 
     path = _image_path(f"hist_{column}")
+    valid_data = df[column].dropna()
     plt.figure(figsize=(8, 4.6))
-    plt.hist(df[column].dropna(), bins=30, color="#7c3aed", edgecolor="white")
+    plt.hist(valid_data, bins=30, color="#7c3aed", edgecolor="white")
     plt.title(f"Histogram {_pretty_label(column)}")
     plt.xlabel(_pretty_label(column))
     plt.ylabel("Frekuensi")
     plt.ticklabel_format(style="plain", axis="x")
-    return {"message": f"Ini histogram untuk kolom `{column}`.", "image": _save_plot(path)}
+
+    counts, bin_edges = np.histogram(valid_data, bins=min(20, max(5, int(np.sqrt(len(valid_data))))))
+    hist_records = [
+        {"name": f"{bin_edges[i]:.1f}", "count": int(counts[i])}
+        for i in range(len(counts))
+    ]
+    chart_spec = {
+        "type": "bar",
+        "xKey": "name",
+        "yKey": "count",
+        "title": f"Histogram {_pretty_label(column)}",
+        "data": hist_records,
+    }
+
+    return {
+        "message": f"Ini histogram untuk kolom `{column}`.",
+        "image": _save_plot(path),
+        "chart": chart_spec,
+    }
 
 
 def boxplot_column(df: pd.DataFrame, column: str):
@@ -539,7 +605,15 @@ def model_evaluation(df, target_col: str | None = None):
         ax.set_xlabel("Importance")
         ax.set_title(f"Feature Importance (Random Forest {task_label})")
         image_path = _save_plot(path)
+        feat_chart = {
+            "type": "bar",
+            "xKey": "name",
+            "yKey": "importance",
+            "title": f"Feature Importance (Random Forest {task_label})",
+            "data": [{"name": str(n), "importance": round(float(v), 4)} for n, v in zip(top_names, top_values)],
+        }
     except Exception as e:
+        feat_chart = None
         logger.warning("Feature importance chart failed: %s", e)
 
     response = {
@@ -552,5 +626,7 @@ def model_evaluation(df, target_col: str | None = None):
         response["warning"] = temporal_warning
     if image_path:
         response["image"] = image_path
+    if feat_chart:
+        response["chart"] = feat_chart
 
     return response
