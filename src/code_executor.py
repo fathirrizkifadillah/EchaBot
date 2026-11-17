@@ -1,6 +1,7 @@
 """Sandboxed pandas code execution.
 
-Runs LLM-generated Python code in a restricted subprocess with a timeout and strict allowlist.
+Runs LLM-generated Python code in a restricted subprocess with a timeout, strict AST allowlist,
+and sanitized system environment to prevent unauthorized resource access or secret leakage.
 Only safe pandas, numpy, and DataFrame analytical operations are permitted.
 All file/network I/O, dunder attribute introspection, and code execution facilities are stripped.
 """
@@ -10,6 +11,7 @@ import contextlib
 import io
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 30
 _MAX_OUTPUT_CHARS = 50_000
+_MAX_CODE_CHARS = 10_000
+_MAX_DF_ROWS_FOR_CODE = 500_000
 
 _RUNNER_TEMPLATE = textwrap.dedent("""\
     import contextlib, json, sys, io
@@ -105,7 +109,7 @@ _DENY_PATTERNS = [
 _DENY_NAMES = {
     "__builtins__", "__import__", "eval", "exec", "compile", "open",
     "globals", "locals", "vars", "getattr", "setattr", "delattr", "hasattr",
-    "input", "breakpoint", "help",
+    "input", "breakpoint", "help", "quit", "exit",
 }
 
 _DANGEROUS_IO_ATTRS = {
@@ -121,8 +125,38 @@ _DENY_EXPLICIT_ATTRS = {
 }
 
 
+def get_sandboxed_env() -> dict:
+    """Create a sanitized minimal environment dictionary for the execution subprocess.
+    
+    Explicitly strips API keys, database credentials, secrets, and auth tokens
+    to prevent accidental discovery or leakage via subprocess memory or error logs.
+    """
+    safe_keys = {
+        "SYSTEMROOT", "WINDIR", "PATH", "Path", "PATHEXT", "TEMP", "TMP",
+        "LANG", "LC_ALL", "PYTHONHOME", "MPLCONFIGDIR", "SYSTEMDRIVE",
+        "COMSPEC", "ALLUSERSPROFILE", "PROGRAMDATA", "APPDATA", "LOCALAPPDATA",
+    }
+    env = {}
+    for key, value in os.environ.items():
+        if key in safe_keys or key.upper() in safe_keys:
+            # Double check that no accidental secret is in the variable name
+            upper = key.upper()
+            if not any(bad in upper for bad in ("KEY", "SECRET", "TOKEN", "PASS", "AUTH", "DATABASE", "URL", "GROQ")):
+                env[key] = value
+
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
 def validate_code(code: str) -> str | None:
-    """Validate python code using an AST allowlist and forbidden pattern filter."""
+    """Validate python code using an AST allowlist, length bounds, and forbidden pattern filter."""
+    if not code or not isinstance(code, str):
+        return "Kode kosong atau tidak valid."
+
+    if len(code) > _MAX_CODE_CHARS:
+        return f"Kode ditolak: kode terlalu panjang ({len(code)} karakter, maks {_MAX_CODE_CHARS} karakter)."
+
     code_lower = code.lower()
     for pattern in _DENY_PATTERNS:
         if pattern.lower() in code_lower:
@@ -152,16 +186,28 @@ def validate_code(code: str) -> str | None:
             if attr.startswith("read_"):
                 return f"Kode ditolak: metode I/O `{attr}` tidak diperbolehkan demi keamanan."
 
+        # Disallow string literals attempting to pass dunder or introspection attributes
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            val = node.value.strip()
+            if val.startswith("__") and val.endswith("__"):
+                return f"Kode ditolak: string literal `{val}` tidak diperbolehkan demi keamanan."
+
     return None
 
 
 def execute_code(code: str, df) -> dict:
-    """Execute pandas code against the given DataFrame in a sandboxed subprocess."""
+    """Execute pandas code against the given DataFrame in a hardened, sandboxed subprocess."""
     import pandas as pd
 
     violation = validate_code(code)
     if violation:
         return {"ok": False, "message": violation}
+
+    if df is not None and len(df) > _MAX_DF_ROWS_FOR_CODE:
+        return {
+            "ok": False,
+            "message": f"Ukuran dataset terlalu besar untuk eksekusi kode langsung ({len(df):,} baris, maks {_MAX_DF_ROWS_FOR_CODE:,}).",
+        }
 
     # Build runner script with the code inlined
     escaped_code = repr(code)
@@ -173,6 +219,8 @@ def execute_code(code: str, df) -> dict:
     except Exception as exc:
         return {"ok": False, "message": f"Gagal serialisasi dataset: {exc}"}
 
+    sandboxed_env = get_sandboxed_env()
+
     try:
         proc = subprocess.run(
             [sys.executable, "-c", runner],
@@ -181,6 +229,7 @@ def execute_code(code: str, df) -> dict:
             text=True,
             timeout=_TIMEOUT_SECONDS,
             cwd=tempfile.gettempdir(),
+            env=sandboxed_env,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "message": f"Eksekusi timeout ({_TIMEOUT_SECONDS} detik). Coba kode yang lebih efisien."}
@@ -198,4 +247,3 @@ def execute_code(code: str, df) -> dict:
         return result
     except json.JSONDecodeError:
         return {"ok": False, "message": f"Output tidak valid: {output[:500]}"}
-
